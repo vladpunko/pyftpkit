@@ -20,12 +20,13 @@ PYBIND11_MODULE(_pathtrie, m) {
     py::class_<pyftpkit::PathTrie>(m, "PathTrie")
         .def(py::init<>())
         .def("__iter__", [](pyftpkit::PathTrie &self) {
-            // To avoid problems with undefined behavior, it is necessary to keep the collected
-            // paths in memory until the generator is either deallocated or stopped. To do this, it is
-            // better to create an additional iterator, since after calling this method, the lambda
-            // function will be destroyed.
+            // To prevent undefined behavior, collected paths must remain in memory
+            // until the generator is either destroyed or iteration ends.
+            // Creating a separate iterator ensures the lambda can safely return paths
+            // without being destroyed immediately.
             return pyftpkit::PathTrieIterator(self);
         }, py::keep_alive<0, 1>(), "Returns all unique paths as a generator of strings.")
         .def("clear", &pyftpkit::PathTrie::clear, "Clears the entire trie.")
-        .def("insert", &pyftpkit::PathTrie::insert, py::arg("path"), "Inserts a single path into a trie.");
+        .def("insert", &pyftpkit::PathTrie::insert, py::arg("path"), "Inserts a single path into a trie.")
+        .def("get_all_unique_paths", &pyftpkit::PathTrie::getAllUniquePaths, "Returns all unique paths as a list of strings.");
 }

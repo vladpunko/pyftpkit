@@ -26,3 +26,7 @@ class PathTrie:
     def insert(self, path: str) -> None:
         """Inserts a single path into a trie."""
         ...
+
+    def get_all_unique_paths(self) -> typing.List[str]:
+        """Returns all unique paths as a list of strings."""
+        ...

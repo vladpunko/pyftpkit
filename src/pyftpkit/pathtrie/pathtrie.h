@@ -5,49 +5,37 @@
 #ifndef _PATHTRIE_HEADER
 #define _PATHTRIE_HEADER
 
-#include <deque>
 #include <memory>
-#include <string_view>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-// arena allocation
-#define PATH_TRIE_ARENA_RESERVE 4096 // bytes for arena string storage
-
-// vector preallocation
-#define PATH_TRIE_VIEWS_RESERVE 128 // estimated average path depth in the trie
-#define PATH_TRIE_PATHS_RESERVE 256 // expected number of unique paths
-
 namespace pyftpkit {
 
-static const char SEP = '/';
-
-using UniquePaths = std::pair<std::shared_ptr<std::string>, std::vector<std::string_view>>;
+constexpr char SEP = '/';
+constexpr size_t PATHTRIE_DEPTH_RESERVE = 1 << 12; // estimated average path depth in the trie
+constexpr size_t PATHTRIE_PATHS_RESERVE = 1 << 12; // expected number of unique paths
 
 struct TrieNode {
-    std::unordered_map<std::string_view, std::unique_ptr<TrieNode>> children;
+    std::unordered_map<std::string, std::unique_ptr<TrieNode>> children;
 };
 
 class PathTrie {
 public:
     PathTrie();
 
+    const TrieNode* getRoot() const;
     void clear();
     void insert(const std::string& path);
-    UniquePaths getAllUniquePaths() const;
+    std::vector<std::string> getAllUniquePaths() const;
 
 private:
-    std::unique_ptr<TrieNode> root;
-    std::deque<std::string> storage; // arena for strings
+    std::unique_ptr<TrieNode> _root;
 
     void collectPaths(
-        const TrieNode* node,
-        std::string& buffer,
-        std::string& arena,
-        std::vector<std::string_view>& views
+        const TrieNode* node, std::string& buffer, std::vector<std::string>& paths
     ) const;
-    TrieNode* insertPath(TrieNode* node, const std::string_view& path);
+    TrieNode* insertPath(TrieNode* node, const std::string& path);
 };
 
 } // namespace pyftpkit

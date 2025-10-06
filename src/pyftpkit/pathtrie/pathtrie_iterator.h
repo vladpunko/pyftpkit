@@ -6,15 +6,20 @@
 #define _PATHTRIE_ITERATOR_HEADER
 
 #include <memory>
-#include <string_view>
+#include <stack>
 #include <string>
-#include <vector>
-
-#include <pybind11/pybind11.h>
+#include <unordered_map>
 
 #include "pathtrie.h"
 
 namespace pyftpkit {
+
+struct StackFrame {
+    const TrieNode* node;
+    std::unordered_map<std::string, std::unique_ptr<TrieNode>>::const_iterator it;
+    std::unordered_map<std::string, std::unique_ptr<TrieNode>>::const_iterator end;
+    std::string prefix;
+};
 
 class PathTrieIterator {
 public:
@@ -24,9 +29,10 @@ public:
     std::string next();
 
 private:
-    size_t index;
-    std::shared_ptr<std::string> arena;
-    std::vector<std::string_view> views;
+    std::stack<StackFrame> _stack;
+
+    std::string joinPath(const std::string& prefix, const std::string& part) const;
+    void pushFrame(const TrieNode* node, const std::string& prefix);
 };
 
 } // namespace pyftpkit
