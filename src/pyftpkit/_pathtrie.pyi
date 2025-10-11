@@ -13,7 +13,6 @@ class PathTrieIterator:
         """Returns the next unique path string."""
         ...
 
-
 class PathTrie:
     def __iter__(self) -> typing.Iterator[str]:
         """Returns all unique paths as a generator of strings."""

@@ -1,9 +1,11 @@
+*.a
 *.egg
 *.egg-info
 *.html
 *.log
 *.prof
 *.py[cod]
+*.so
 *.xml
 .*
 
