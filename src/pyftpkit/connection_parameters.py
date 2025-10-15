@@ -15,5 +15,5 @@ class Credentials(pydantic.BaseModel):
 
 class ConnectionParameters(pydantic_settings.BaseSettings):
     host: str
-    port: int = 21
+    port: int = 0
     credentials: Credentials

@@ -53,7 +53,7 @@ class FTP(ftplib.FTP):
         host : str
             Host name for a connection.
 
-        port : int
+        port : int, default=0 (no port is used)
             Port number for a connection.
 
         timeout : float, default=-999
@@ -73,15 +73,3 @@ class FTP(ftplib.FTP):
             _set_socket_options(self.sock)
 
         return welcome
-
-
-try:
-    import ssl  # noqa
-except ImportError:
-    pass
-else:
-
-    class FTP_TLS(FTP, ftplib.FTP_TLS):
-        """Applies the same socket optimizations as defined above."""
-
-    __all__.append("FTP_TLS")
