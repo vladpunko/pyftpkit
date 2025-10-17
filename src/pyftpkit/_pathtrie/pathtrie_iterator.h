@@ -23,7 +23,7 @@ struct StackFrame {
 
 class PathTrieIterator {
 public:
-    PathTrieIterator(const PathTrie& trie);
+    explicit PathTrieIterator(const PathTrie& trie);
 
     PathTrieIterator& iter();
     std::string next();

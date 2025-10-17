@@ -8,32 +8,7 @@
 
 namespace pyftpkit {
 
-static std::vector<std::string_view> split(const std::string& str) {
-    std::vector<std::string_view> parts;
-    parts.reserve(PATHTRIE_PATHS_RESERVE); // avoids reallocations for small splits
-
-    size_t start = 0;
-    size_t end = 0;
-
-    while ((end = str.find(SEP, start)) != std::string_view::npos) {
-        if (end > start) {
-            parts.emplace_back(std::string_view(str.data() + start, end - start));
-        }
-        start = end + 1;
-    }
-
-    if (start < str.size()) {
-        parts.emplace_back(std::string_view(str.data() + start, str.size() - start));
-    }
-
-    return parts;
-}
-
 PathTrie::PathTrie() : _root(std::make_unique<TrieNode>()) {}
-
-const TrieNode* PathTrie::getRoot() const {
-    return _root.get();
-}
 
 void PathTrie::clear() {
     _root = std::make_unique<TrieNode>();
@@ -55,26 +30,49 @@ void PathTrie::insert(const std::string& path) {
 
     TrieNode* node = _root.get();
 
-    static const std::string sep(1, SEP);
-    if (path.front() == SEP) {
+    static const std::string sep(1, _unixSep);
+    if (path.front() == _unixSep) {
         node = insertPath(node, sep);
     }
 
-    static const std::string dot(".");
-    for (const auto& part : split(path)) {
-        if (part.empty() || part == dot) {
+    static const std::string dotChar("."); // "." and ".."
+    for (const auto& part : split(path, _unixSep)) {
+        if (part.empty() || part == dotChar) {
             continue;
         }
         node = insertPath(node, std::string(part));
     }
 }
 
+std::vector<std::string_view> PathTrie::split(
+    const std::string& str, const char& sep
+) {
+    std::vector<std::string_view> parts;
+    parts.reserve(_pathsReserve); // avoids reallocations for small splits
+
+    size_t start = 0;
+    size_t end = 0;
+
+    while ((end = str.find(sep, start)) != std::string_view::npos) {
+        if (end > start) {
+            parts.emplace_back(std::string_view(str.data() + start, end - start));
+        }
+        start = end + 1;
+    }
+
+    if (start < str.size()) {
+        parts.emplace_back(std::string_view(str.data() + start, str.size() - start));
+    }
+
+    return parts;
+}
+
 std::vector<std::string> PathTrie::getAllUniquePaths() const {
     std::vector<std::string> paths;
-    paths.reserve(PATHTRIE_DEPTH_RESERVE);
+    paths.reserve(_depthReserve);
 
     std::string buffer;
-    buffer.reserve(PATHTRIE_PATHS_RESERVE);
+    buffer.reserve(_pathsReserve);
 
     collectPaths(_root.get(), buffer, paths);
 
@@ -87,8 +85,8 @@ void PathTrie::collectPaths(
     for (const auto& [name, child] : node->children) {
         size_t size = buffer.size();
 
-        if (!buffer.empty() && buffer.back() != SEP) {
-            buffer.push_back(SEP);
+        if (!buffer.empty() && buffer.back() != _unixSep) {
+            buffer.push_back(_unixSep);
         }
         buffer.append(name);
 

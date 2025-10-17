@@ -11,7 +11,7 @@ namespace py = pybind11;
 namespace pyftpkit {
 
 PathTrieIterator::PathTrieIterator(const PathTrie& trie) {
-    const TrieNode* root = trie.getRoot();
+    const TrieNode* root = trie._root.get();
 
     if (root && !root->children.empty()) {
         pushFrame(root, "");
@@ -25,8 +25,8 @@ PathTrieIterator& PathTrieIterator::iter() {
 std::string PathTrieIterator::joinPath(
     const std::string& prefix, const std::string& part
 ) const {
-    if (!prefix.empty() && prefix.back() != SEP) {
-        return prefix + SEP + part;
+    if (!prefix.empty() && prefix.back() != PathTrie::_unixSep) {
+        return prefix + PathTrie::_unixSep + part;
     }
 
     return prefix + part;

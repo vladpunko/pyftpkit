@@ -14,12 +14,12 @@ PYBIND11_MODULE(_pathtrie, m) {
     m.doc() = "High-performance unique path generator using a trie.";
 
     py::class_<pyftpkit::PathTrieIterator>(m, "PathTrieIterator")
-        .def("__iter__", &pyftpkit::PathTrieIterator::iter, py::keep_alive<0, 1>(), "Returns self as an iterator.")
+        .def("__iter__", &pyftpkit::PathTrieIterator::iter, py::return_value_policy::reference_internal, "Returns self as an iterator.")
         .def("__next__", &pyftpkit::PathTrieIterator::next, "Returns the next unique path string.");
 
     py::class_<pyftpkit::PathTrie>(m, "PathTrie")
         .def(py::init<>())
-        .def("__iter__", [](pyftpkit::PathTrie &self) {
+        .def("__iter__", [](pyftpkit::PathTrie& self) {
             // To prevent undefined behavior, collected paths must remain in memory
             // until the generator is either destroyed or iteration ends.
             // Creating a separate iterator ensures the lambda can safely return paths

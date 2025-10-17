@@ -84,7 +84,6 @@ setuptools.setup(
     package_dir={"": "src"},
     packages=[
         "pyftpkit",
-        "pyftpkit.pathtrie",
     ],
     ext_modules=[
         CMakeExtension("pyftpkit._pathtrie"),
