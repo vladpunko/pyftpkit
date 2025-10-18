@@ -12,11 +12,13 @@
 
 namespace pyftpkit {
 
-class PathTrieIterator;
-
 struct TrieNode {
     std::unordered_map<std::string, std::unique_ptr<TrieNode>> children;
 };
+
+// Use a forward declaration for this class and declare it as a friend of the
+// class containing the trie to encapsulate and hide as many attributes as possible.
+class PathTrieIterator;
 
 class PathTrie {
 public:
