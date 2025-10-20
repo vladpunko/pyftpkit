@@ -2,8 +2,8 @@
 
 // Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
-#ifndef _PATHTRIE_HEADER
-#define _PATHTRIE_HEADER
+#ifndef PATHTRIE_H_
+#define PATHTRIE_H_
 
 #include <memory>
 #include <string>
@@ -16,7 +16,7 @@ struct TrieNode {
     std::unordered_map<std::string, std::unique_ptr<TrieNode>> children;
 };
 
-// Use a forward declaration for this class and declare it as a friend of the
+// Use the forward declaration for this class and declare it as a friend of the
 // class containing the trie to encapsulate and hide as many attributes as possible.
 class PathTrieIterator;
 
@@ -24,22 +24,22 @@ class PathTrie {
 public:
     PathTrie();
 
-    void clear();
-    void insert(const std::string& path);
-    std::vector<std::string> getAllUniquePaths() const;
+    void Clear();
+    void Insert(const std::string &path);
+    std::vector<std::string> GetAllUniquePaths() const;
+
+    static constexpr char kUnixSep = '/';
+    static constexpr size_t kDepthReserve = 1 << 12;  // estimated average path depth in the trie
+    static constexpr size_t kPathsReserve = 1 << 12;  // expected number of unique paths
 
 private:
-    std::unique_ptr<TrieNode> _root;
+    std::unique_ptr<TrieNode> root_;
 
-    void collectPaths(
-        const TrieNode* node, std::string& buffer, std::vector<std::string>& paths
-    ) const;
-    TrieNode* insertPath(TrieNode* node, const std::string& path);
-
-    static constexpr char _unixSep = '/';
-    static constexpr size_t _depthReserve = 1 << 12; // estimated average path depth in the trie
-    static constexpr size_t _pathsReserve = 1 << 12; // expected number of unique paths
-    static std::vector<std::string_view> split(const std::string& str, const char& sep);
+    void CollectPaths(const TrieNode *node,
+                      std::string &buffer,
+                      std::vector<std::string> &paths) const;
+    TrieNode *InsertPath(TrieNode *node, const std::string &path);
+    static std::vector<std::string_view> SplitPath(const std::string &str, const char &sep);
 
     friend class PathTrieIterator;
 };

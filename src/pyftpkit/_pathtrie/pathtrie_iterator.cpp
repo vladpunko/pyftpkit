@@ -10,50 +10,57 @@ namespace py = pybind11;
 
 namespace pyftpkit {
 
-PathTrieIterator::PathTrieIterator(const PathTrie& trie) {
-    const TrieNode* root = trie._root.get();
+PathTrieIterator::PathTrieIterator(const PathTrie &trie)
+{
+    const TrieNode *root = trie.root_.get();
 
     if (root && !root->children.empty()) {
-        pushFrame(root, "");
+        PushFrame(root, "");
     }
 }
 
-PathTrieIterator& PathTrieIterator::iter() {
+PathTrieIterator &
+PathTrieIterator::Iter()
+{
     return *this;
 }
 
-std::string PathTrieIterator::joinPath(
-    const std::string& prefix, const std::string& part
-) const {
-    if (!prefix.empty() && prefix.back() != PathTrie::_unixSep) {
-        return prefix + PathTrie::_unixSep + part;
+std::string
+PathTrieIterator::JoinPath(const std::string &prefix, const std::string &path_part) const
+{
+    if (!prefix.empty() && prefix.back() != PathTrie::kUnixSep) {
+        return prefix + PathTrie::kUnixSep + path_part;
     }
 
-    return prefix + part;
+    return prefix + path_part;
 }
 
-void PathTrieIterator::pushFrame(const TrieNode* node, const std::string& prefix) {
+void
+PathTrieIterator::PushFrame(const TrieNode *node, const std::string &prefix)
+{
     if (!node->children.empty()) {
-        _stack.push({node, node->children.begin(), node->children.end(), prefix});
+        stack_.push({node, node->children.begin(), node->children.end(), prefix});
     }
 }
 
-std::string PathTrieIterator::next() {
-    while (!_stack.empty()) {
-        auto& top = _stack.top();
+std::string
+PathTrieIterator::Next()
+{
+    while (!stack_.empty()) {
+        auto &top = stack_.top();
 
         if (top.it == top.end) {
-            _stack.pop();
+            stack_.pop();
 
             continue;
         }
 
-        const auto& part = top.it->first;
-        const TrieNode* child = top.it->second.get();
+        const auto &path_part = top.it->first;
+        const TrieNode *child = top.it->second.get();
         ++top.it; // move to the next child
 
-        std::string path = joinPath(top.prefix, part);
-        pushFrame(child, path);
+        std::string path = JoinPath(top.prefix, path_part);
+        PushFrame(child, path);
 
         return path;
     }

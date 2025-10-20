@@ -28,20 +28,13 @@ class FTPPoolExecutor:
     without blocking the event loop.
     """
 
-    DEFAULT_POOL_SIZE: typing.Final[int] = 10
-    DEFAULT_THREADS_PER_CONNECTION: typing.Final[int] = 3
-    DEFAULT_TIMEOUT: typing.Final[int] = 30
-
     def __init__(
         self,
         connection_parameters: ConnectionParameters,
-        /,
-        size: int = DEFAULT_POOL_SIZE,
-        threads_per_connection: int = DEFAULT_THREADS_PER_CONNECTION,
-        timeout: int = DEFAULT_TIMEOUT,
+        *,
         executor: ThreadPoolExecutor | None = None,
     ) -> None:
-        self.connection_parameters = connection_parameters
+        self._connection_parameters = connection_parameters
 
         # We need to track all connections for proper cleanup.
         self._connections: weakref.WeakSet[ftplib.FTP] = weakref.WeakSet()
@@ -53,15 +46,9 @@ class FTPPoolExecutor:
 
         self._closed: bool = True
 
-        # Maximum number of connections in the pool.
-        self._size = size
-
-        # Timeout for connection attempts and pool initialization.
-        self._timeout = timeout
-
         # External executor or an internal one for blocking calls.
         self._executor = executor or ThreadPoolExecutor(
-            max_workers=size * threads_per_connection
+            max_workers=self._connection_parameters.max_workers
         )
 
     @property
@@ -115,19 +102,19 @@ class FTPPoolExecutor:
         try:
             ftp = FTP()
             ftp.connect(
-                self.connection_parameters.host,
-                self.connection_parameters.port,
-                timeout=self._timeout,
+                self._connection_parameters.host,
+                self._connection_parameters.port,
+                timeout=self._connection_parameters.timeout,
             )
             ftp.login(
-                self.connection_parameters.credentials.username,
-                self.connection_parameters.credentials.password.get_secret_value(),
+                self._connection_parameters.credentials.username,
+                self._connection_parameters.credentials.password.get_secret_value(),
             )
             ftp.set_pasv(True)
             logger.debug(
                 "FTP connection has been created: %s:%s",
-                self.connection_parameters.host,
-                self.connection_parameters.port,
+                self._connection_parameters.host,
+                self._connection_parameters.port,
             )
 
             return ftp
@@ -135,8 +122,8 @@ class FTPPoolExecutor:
             logger.error("Unable to create a new connection.")
             raise FTPError(
                 "Could not open an FTP connection to: {0!s}:{1!s}".format(
-                    self.connection_parameters.host,
-                    self.connection_parameters.port,
+                    self._connection_parameters.host,
+                    self._connection_parameters.port,
                 )
             ) from err
 
@@ -146,12 +133,13 @@ class FTPPoolExecutor:
 
         tasks = [
             loop.run_in_executor(self._executor, self._connect)
-            for _ in range(self._size)
+            for _ in range(self._connection_parameters.max_connections)
         ]
         try:
             # Wait for all connections to be established.
             connections: list[FTP] = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=False), timeout=self._timeout
+                asyncio.gather(*tasks, return_exceptions=False),
+                timeout=self._connection_parameters.timeout,
             )
         except asyncio.TimeoutError as err:
             logger.error(
@@ -164,7 +152,8 @@ class FTPPoolExecutor:
             await self._pool.put(connection)
 
         logger.debug(
-            "FTP connection pool has been initialized with %d connections.", self._size
+            "FTP connection pool has been initialized with %d connections.",
+            self._connection_parameters.max_connections,
         )
 
         self._closed = False
@@ -186,7 +175,9 @@ class FTPPoolExecutor:
         self._ensure_lock()
 
         async with self._lock:
-            self._pool = asyncio.Queue(maxsize=self._size)
+            self._pool = asyncio.Queue(
+                maxsize=self._connection_parameters.max_connections
+            )
 
             await self._open_connections()
 
@@ -244,8 +235,8 @@ class FTPPoolExecutor:
                 logger.error("Unable to close the FTP connection safely.")
                 raise FTPError(
                     "Failed to safely close the FTP connection to: {0!s}:{1!s}".format(
-                        self.connection_parameters.host,
-                        self.connection_parameters.port,
+                        self._connection_parameters.host,
+                        self._connection_parameters.port,
                     )
                 ) from err
 
