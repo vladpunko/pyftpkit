@@ -88,9 +88,16 @@ class PycURL:
                     f"Could not create target directory: {dirname!s}"
                 ) from err
 
+        src = self._ensure_ftp_url(src)
+        logger.debug(
+            "Downloading '%s' from FTP server to '%s' on the local machine.",
+            src,
+            str(dst),
+        )
+
         curl = pycurl.Curl()
         curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
-        curl.setopt(pycurl.URL, self._ensure_ftp_url(src))
+        curl.setopt(pycurl.URL, src)
         curl.setopt(
             pycurl.USERPWD,
             "{0!s}:{1!s}".format(
@@ -101,12 +108,22 @@ class PycURL:
         curl.setopt(pycurl.FTP_USE_EPSV, 1)
         curl.setopt(pycurl.NOSIGNAL, 1)  # essential for multi-threaded python programs
         curl.setopt(pycurl.BUFFERSIZE, io.DEFAULT_BUFFER_SIZE)
+        for option, value in self._connection_parameters.extra_options.items():
+            curl.setopt(option, value)
         try:
             with io.open(dst, mode="wb") as buffer:
                 curl.setopt(pycurl.WRITEDATA, buffer)
                 curl.perform()
 
-                return curl.getinfo(pycurl.SIZE_DOWNLOAD)
+                size_bytes = curl.getinfo(pycurl.SIZE_DOWNLOAD)
+                logger.debug(
+                    "Completed transfer of %d bytes from FTP location '%s' to '%s'.",
+                    size_bytes,
+                    src,
+                    str(dst),
+                )
+
+                return size_bytes
         except pycurl.error as err:
             logger.exception("An unexpected error occurred while fetching the data.")
             raise FTPError(
@@ -118,6 +135,75 @@ class PycURL:
                 "An error occurred while trying to write the buffer to disk."
             )
             raise RuntimeError(f"Failed to write buffer data to: {dst!s}") from err
+
+        finally:
+            curl.close()
+
+    def upload(self, src: str | pathlib.Path, dst: str | pathlib.Path) -> None:
+        """Uploads a local file to the remote FTP server.
+
+        Automatically converts the destination path to a full FTP URL and supports
+        passive mode transfers. All missing directories must be created before
+        uploading to the remote server.
+
+        Parameters
+        ----------
+        src : str or pathlib.Path
+            Path to the local file to upload.
+
+        dst : str or pathlib.Path
+            Path on the FTP server where the file should be placed.
+
+        Raises
+        ------
+        RuntimeError
+            If reading the local file fails.
+
+        FTPError
+            If the FTP upload fails due to network or server-side issues.
+        """
+        dst = self._ensure_ftp_url(dst)
+        logger.debug(
+            "Starting file upload from local '%s' to FTP path '%s'.",
+            str(src),
+            dst,
+        )
+
+        curl = pycurl.Curl()
+        curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
+        curl.setopt(pycurl.URL, dst)
+        curl.setopt(
+            pycurl.USERPWD,
+            "{0!s}:{1!s}".format(
+                self._connection_parameters.credentials.username,
+                self._connection_parameters.credentials.password.get_secret_value(),
+            ),
+        )
+        curl.setopt(pycurl.FTP_USE_EPSV, 1)
+        curl.setopt(pycurl.NOSIGNAL, 1)
+        # Tests indicate that building the directory hierarchy before upload leads to
+        # better performance in concurrent transfer scenarios.
+        # curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
+        curl.setopt(pycurl.INFILESIZE, os.path.getsize(src))
+        curl.setopt(pycurl.UPLOAD, 1)
+        for option, value in self._connection_parameters.extra_options.items():
+            curl.setopt(option, value)
+        try:
+            with io.open(src, mode="rb") as stream:
+                curl.setopt(pycurl.READDATA, stream)
+                curl.perform()
+                logger.debug("Completed FTP upload of '%s' to '%s'.", str(src), dst)
+        except pycurl.error as err:
+            logger.exception("File could not be uploaded to the FTP server.")
+            raise FTPError(
+                f"Could not upload {str(src)!r} to {dst!r} on FTP server."
+            ) from err
+
+        except (IOError, OSError) as err:
+            logger.exception("File read operation failed on local system.")
+            raise RuntimeError(
+                f"An error occurred while accessing the local file: {src!s}."
+            ) from err
 
         finally:
             curl.close()

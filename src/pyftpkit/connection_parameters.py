@@ -28,3 +28,7 @@ class ConnectionParameters(pydantic_settings.BaseSettings):
     max_workers: int = pydantic.Field(
         30, description="maximum number of worker threads for parallel tasks"
     )
+    extra_options: dict[int, str | int] = pydantic.Field(
+        default_factory=dict,
+        description="optional dictionary of additional cURL configuration options",
+    )
