@@ -37,7 +37,7 @@ class FTPPoolExecutor:
         self._connection_parameters = connection_parameters
 
         # We need to track all connections for proper cleanup.
-        self._connections: weakref.WeakSet[ftplib.FTP] = weakref.WeakSet()
+        self._connections: weakref.WeakSet[FTP] = weakref.WeakSet()
 
         # We need to ensure that all asynchronous objects are created during
         # pool initialization so they are bound to the correct event loop.
@@ -71,7 +71,7 @@ class FTPPoolExecutor:
         try:
             asyncio.get_running_loop()
         except RuntimeError as err:
-            logging.error("No running event loop was detected.")
+            logging.exception("No running event loop was detected.")
             raise RuntimeError(
                 f"{type(self).__name__!s} requires an active event loop to open."
             ) from err
@@ -119,7 +119,7 @@ class FTPPoolExecutor:
 
             return ftp
         except ftplib.all_errors as err:
-            logger.error("Unable to create a new connection.")
+            logger.exception("Unable to create a new connection.")
             raise FTPError(
                 "Could not open an FTP connection to: {0!s}:{1!s}".format(
                     self._connection_parameters.host,
@@ -142,7 +142,7 @@ class FTPPoolExecutor:
                 timeout=self._connection_parameters.timeout,
             )
         except asyncio.TimeoutError as err:
-            logger.error(
+            logger.exception(
                 "FTP connection pool failed to initialize within the timeout period."
             )
             raise FTPError("FTP connection pool initialization timed out.") from err
@@ -232,7 +232,7 @@ class FTPPoolExecutor:
             try:
                 ftp.close()
             except ftplib.all_errors as err:
-                logger.error("Unable to close the FTP connection safely.")
+                logger.exception("Unable to close the FTP connection safely.")
                 raise FTPError(
                     "Failed to safely close the FTP connection to: {0!s}:{1!s}".format(
                         self._connection_parameters.host,
