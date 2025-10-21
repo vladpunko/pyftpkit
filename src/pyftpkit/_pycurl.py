@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import pathlib
+import urllib.parse
 
 import pycurl
 
@@ -23,8 +24,37 @@ class PycURL:
     def __init__(self, connection_parameters: ConnectionParameters) -> None:
         self._connection_parameters = connection_parameters
 
+    def _ensure_ftp_url(self, path: str | pathlib.Path) -> str:
+        """Ensures a proper FTP URL for the given path using the connection parameters.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            The FTP path to normalize and convert into a URL.
+
+        Returns
+        -------
+        str
+            A fully-qualified FTP URL.
+        """
+        path = str(path)
+
+        if path.startswith("ftp://"):
+            return path
+
+        # Ensure the path is consistently formatted and safely encoded for URL usage.
+        normpath = urllib.parse.quote(path.strip().lstrip("/") or "/", safe="/")
+
+        host = self._connection_parameters.host
+        port = self._connection_parameters.port
+        netloc = f"{host!s}:{port!s}" if port and port > 0 else host
+
+        return urllib.parse.urlunparse(("ftp", netloc, normpath, "", "", ""))
+
     def download(self, src: str | pathlib.Path, dst: str | pathlib.Path) -> float:
         """Fetches a remote file and writes it to the local filesystem.
+
+        Adds the FTP protocol prefix to the source path if missing.
 
         Parameters
         ----------
@@ -60,7 +90,7 @@ class PycURL:
 
         curl = pycurl.Curl()
         curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
-        curl.setopt(pycurl.URL, str(src))
+        curl.setopt(pycurl.URL, self._ensure_ftp_url(src))
         curl.setopt(
             pycurl.USERPWD,
             "{0!s}:{1!s}".format(
