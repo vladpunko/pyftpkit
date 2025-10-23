@@ -149,6 +149,7 @@ class FTPFileSystem:
             ftp = await self._pool.get()
             try:
                 while not stop_event.is_set():
+                    dirpath = None
                     try:
                         dirpath = await asyncio.wait_for(
                             queue.get(), timeout=self._connection_parameters.timeout
@@ -162,10 +163,11 @@ class FTPFileSystem:
                     try:
                         dirs, nondirs = await self._listdir(dirpath, ftp=ftp)
                         await output_queue.put((pathlib.Path(dirpath), dirs, nondirs))
-                        for dirpath in dirs:
-                            await queue.put(dirpath)
+                        for subdirpath in dirs:
+                            await queue.put(subdirpath)
                     finally:
-                        queue.task_done()
+                        if dirpath is not None:
+                            queue.task_done()
             except asyncio.CancelledError:
                 pass
             finally:
@@ -176,29 +178,52 @@ class FTPFileSystem:
             asyncio.create_task(_worker())
             for _ in range(self._connection_parameters.max_workers)
         ]
+
+        # Wait for either new results or traversal completion.
+        traversal_task = asyncio.create_task(queue.join())
+        get_output_task = asyncio.create_task(output_queue.get())
         try:
-            # Wait for either new results or traversal completion.
-            traversal_task = asyncio.create_task(queue.join())
+            pending_tasks: set[asyncio.Future[typing.Any]] = set(
+                workers + [traversal_task, get_output_task]
+            )
             while True:
-                completed_tasks, _ = await asyncio.wait(
-                    [traversal_task, asyncio.create_task(output_queue.get())],
+                completed_tasks, pending_tasks = await asyncio.wait(
+                    pending_tasks,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
-                if traversal_task in completed_tasks:
-                    # All directories processed.
-                    break
-
                 for task in completed_tasks:
-                    if task is not traversal_task:
+                    if task is traversal_task:
+                        break
+
+                    if task in workers:
+                        if task.exception() is not None:
+                            raise task.exception()
+
+                    if task is get_output_task:
                         if (output := task.result()) is not None:
                             yield output
+
+                        # Replace the task.
+                        get_output_task = asyncio.create_task(output_queue.get())
+                        pending_tasks.add(get_output_task)
+
+                if traversal_task.done():
+                    # All directories processed.
+                    break
         finally:
             stop_event.set()  # signal all workers to stop
 
-            for worker in workers:
-                worker.cancel()
-            await asyncio.gather(*workers, return_exceptions=True)
+            tasks_to_cleanup: list[asyncio.Task[typing.Any]] = workers + [
+                traversal_task
+            ]
+            if not get_output_task.done():
+                tasks_to_cleanup.append(get_output_task)
+
+            for task in tasks_to_cleanup:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks_to_cleanup, return_exceptions=True)
 
     async def isdir(self, path: str | pathlib.Path) -> bool:
         """Checks whether the given remote path is a directory.
