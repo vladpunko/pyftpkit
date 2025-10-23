@@ -200,7 +200,9 @@ class FTPPoolExecutor:
             )
             raise RuntimeError("Connection pool is not initialized or is closed.")
 
-        return await self._pool.get()
+        return await asyncio.wait_for(
+            self._pool.get(), timeout=self._connection_parameters.timeout
+        )
 
     async def release(self, ftp: FTP) -> None:
         """Returns an FTP connection back to the pool for reuse.
