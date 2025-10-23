@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import pathlib
+import typing
 import urllib.parse
 
 import pycurl
@@ -106,7 +107,7 @@ class PycURL:
             ),
         )
         curl.setopt(pycurl.FTP_USE_EPSV, 1)
-        curl.setopt(pycurl.NOSIGNAL, 1)  # essential for multi-threaded python programs
+        curl.setopt(pycurl.NOSIGNAL, 1)  # essential for multi-threaded programs
         curl.setopt(pycurl.BUFFERSIZE, io.DEFAULT_BUFFER_SIZE)
         for option, value in self._connection_parameters.extra_options.items():
             curl.setopt(option, value)
@@ -115,7 +116,9 @@ class PycURL:
                 curl.setopt(pycurl.WRITEDATA, buffer)
                 curl.perform()
 
-                size_bytes = curl.getinfo(pycurl.SIZE_DOWNLOAD)
+                size_bytes = typing.cast(
+                    float, curl.getinfo(pycurl.SIZE_DOWNLOAD)  # type: ignore
+                )
                 logger.debug(
                     "Completed transfer of %d bytes from FTP location '%s' to '%s'.",
                     size_bytes,
@@ -180,7 +183,7 @@ class PycURL:
             ),
         )
         curl.setopt(pycurl.FTP_USE_EPSV, 1)
-        curl.setopt(pycurl.NOSIGNAL, 1)
+        curl.setopt(pycurl.NOSIGNAL, 1)  # crucial for programs with multiple threads
         # Tests indicate that building the directory hierarchy before upload leads to
         # better performance in concurrent transfer scenarios.
         # curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)

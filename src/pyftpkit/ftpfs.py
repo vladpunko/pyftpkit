@@ -94,7 +94,7 @@ class FTPFileSystem:
         FTPError
             If an FTP-related error occurs during listing.
         """
-        ftp = self._pool.get()
+        ftp = await self._pool.get()
         try:
             return await self._listdir(path, ftp=ftp)
         except ftplib.all_errors as err:
@@ -133,10 +133,12 @@ class FTPFileSystem:
         """
         stop_event = asyncio.Event()
 
-        queue = asyncio.Queue()
-        await queue.put(path)
+        queue: asyncio.Queue[pathlib.Path] = asyncio.Queue()
+        await queue.put(pathlib.Path(path))
 
-        output_queue = asyncio.Queue()
+        output_queue: asyncio.Queue[
+            tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]]
+        ] = asyncio.Queue()
 
         async def _worker() -> None:
             """Worker coroutine that retrieves directories from the task queue.
@@ -189,7 +191,8 @@ class FTPFileSystem:
 
                 for task in completed_tasks:
                     if task is not traversal_task:
-                        yield task.result()
+                        if (output := task.result()) is not None:
+                            yield output
         finally:
             stop_event.set()  # signal all workers to stop
 
@@ -227,7 +230,7 @@ class FTPFileSystem:
             return True
         except ftplib.error_perm as err:
             if str(err).lower() == "550 {0!s}: not a directory.".format(
-                path.rstrip("/")
+                str(path).rstrip("/")
             ):
                 return False
 
@@ -266,7 +269,7 @@ class FTPFileSystem:
             return True
         except ftplib.error_perm as err:
             if str(err).lower() == "550 {0!s}: not a plain file.".format(
-                path.rstrip("/")
+                str(path).rstrip("/")
             ):
                 return False
 

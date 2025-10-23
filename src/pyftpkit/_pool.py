@@ -42,7 +42,7 @@ class FTPPoolExecutor:
         # We need to ensure that all asynchronous objects are created during
         # pool initialization so they are bound to the correct event loop.
         self._lock: asyncio.Lock
-        self._pool: asyncio.Queue
+        self._pool: asyncio.Queue[FTP]
 
         self._closed: bool = True
 
