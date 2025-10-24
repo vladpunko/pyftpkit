@@ -4,10 +4,13 @@
 
 import asyncio
 import ftplib
+import functools
 import logging
+import os
 import pathlib
 import typing
 
+from pyftpkit._pathtrie import PathTrie
 from pyftpkit._pool import FTPPoolExecutor
 from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.exceptions import FTPError
@@ -65,7 +68,10 @@ class FTPFileSystem:
             if name in (".", ".."):
                 continue
 
-            abspath = pathlib.Path(path).joinpath(name)
+            if entry.startswith("l"):
+                name, _ = name.split(" -> ", maxsplit=1)
+
+            abspath = pathlib.Path(path) / name
             if entry.startswith("d"):
                 dirs.append(abspath)
             else:
@@ -165,6 +171,11 @@ class FTPFileSystem:
                         await output_queue.put((pathlib.Path(dirpath), dirs, nondirs))
                         for subdirpath in dirs:
                             await queue.put(subdirpath)
+                    except Exception:
+                        logger.exception(
+                            "An unexpected error occurred at this program runtime."
+                        )
+                        stop_event.set()
                     finally:
                         if dirpath is not None:
                             queue.task_done()
@@ -211,6 +222,18 @@ class FTPFileSystem:
                 if traversal_task.done():
                     # All directories processed.
                     break
+
+            # Yield the final result.
+            if get_output_task.done():
+                if (output := get_output_task.result()) is not None:
+                    yield output
+
+            # Drain any remaining items that might have been
+            # placed onto the output queue before the workers were signaled to stop.
+            while not output_queue.empty():
+                if (output := await output_queue.get()) is not None:
+                    yield output
+                output_queue.task_done()
         finally:
             stop_event.set()  # signal all workers to stop
 
@@ -225,87 +248,53 @@ class FTPFileSystem:
                     task.cancel()
             await asyncio.gather(*tasks_to_cleanup, return_exceptions=True)
 
-    async def isdir(self, path: str | pathlib.Path) -> bool:
-        """Checks whether the given remote path is a directory.
-
-        Parameters
-        ----------
-        path : str or pathlib.Path
-            Remote path to check.
-
-        Returns
-        -------
-        bool
-            True if the path is a directory, otherwise false.
-
-        Raises
-        ------
-        FTPError
-            If any unexpected FTP error occurs during the check.
-        """
-        loop = asyncio.get_running_loop()
-
-        ftp = await self._pool.get()
-        try:
-            cwd = await loop.run_in_executor(self._pool.executor, ftp.pwd)
-
-            await loop.run_in_executor(self._pool.executor, ftp.cwd, str(path))
-            await loop.run_in_executor(self._pool.executor, ftp.cwd, cwd)
-
-            return True
-        except ftplib.error_perm as err:
-            if str(err).lower() == "550 {0!s}: not a directory.".format(
-                str(path).rstrip("/")
-            ):
-                return False
-
-            logger.exception(
-                "Unable to determine whether the path exists or is a directory"
-            )
-            raise FTPError(f"Failed to check if path is a directory: {path!s}") from err
-
-        finally:
-            await self._pool.release(ftp)
-
-    async def isfile(self, path: str | pathlib.Path) -> bool:
-        """Checks whether the given remote path is a regular file.
-
-        Parameters
-        ----------
-        path : str or pathlib.Path
-            Remote path to check.
-
-        Returns
-        -------
-        bool
-            True if the path is a regular file, otherwise false.
-
-        Raises
-        ------
-        FTPError
-            If any unexpected FTP error occurs during the check.
-        """
-        loop = asyncio.get_running_loop()
-
-        ftp = await self._pool.get()
-        try:
-            await loop.run_in_executor(self._pool.executor, ftp.size, str(path))
-
-            return True
-        except ftplib.error_perm as err:
-            if str(err).lower() == "550 {0!s}: not a plain file.".format(
-                str(path).rstrip("/")
-            ):
-                return False
-
-            logging.exception(
-                "Unable to ascertain if the remote path is a regular file."
-            )
-            raise FTPError(f"Failed to check if path is a file: {path!s}") from err
-
-        finally:
-            await self._pool.release(ftp)
-
+    @functools.singledispatchmethod
     async def makedirs(self, path: str | pathlib.Path) -> None:
-        """"""
-        pass
+        """Recursively creates a single directory on the remote FTP server.
+
+        The given path must be absolute and use POSIX-style separators. Each directory
+        in the hierarchy is created if it does not already exist.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Absolute remote path to ensure exists on the FTP server.
+
+        Raises
+        ------
+        FTPError
+            If any directory cannot be created due to permission or FTP errors.
+        """
+        await self.makedirs([path])
+
+    @makedirs.register(list)
+    async def _(self, paths: list[str | pathlib.Path]) -> None:
+        """Recursively creates multiple directories on the remote FTP server."""
+        loop = asyncio.get_running_loop()
+
+        ftp = await self._pool.get()
+        try:
+            pathtrie = PathTrie()
+            for path in paths:
+                pathtrie.insert(str(path))
+
+            for dirpath in pathtrie:
+                if dirpath == os.sep:
+                    continue
+
+                try:
+                    await loop.run_in_executor(
+                        self._pool.executor, ftp.cwd, str(dirpath)
+                    )
+                except ftplib.all_errors as err:
+                    try:
+                        await loop.run_in_executor(
+                            self._pool.executor, ftp.mkd, str(dirpath)
+                        )
+                    except ftplib.error_perm as err:
+                        logger.exception("Remote directory could not be created.")
+                        raise FTPError(
+                            f"Unable to create directory on FTP server: {dirpath!s}."
+                        ) from err
+        finally:
+            await self._pool.release(ftp)
