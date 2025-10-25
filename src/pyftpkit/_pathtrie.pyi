@@ -4,6 +4,8 @@
 
 import typing
 
+__all__: list[str] = ["PathTrieIterator", "PathTrie"]
+
 class PathTrieIterator:
     def __iter__(self) -> "PathTrieIterator":
         """Returns self as an iterator."""
