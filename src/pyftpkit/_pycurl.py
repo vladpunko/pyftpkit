@@ -91,9 +91,7 @@ class PycURL:
 
         src = self._ensure_ftp_url(src)
         logger.debug(
-            "Downloading '%s' from FTP server to '%s' on the local machine.",
-            src,
-            str(dst),
+            "Downloading '%s' from FTP server to '%s' on the local machine.", src, dst
         )
 
         curl = pycurl.Curl()
@@ -123,7 +121,7 @@ class PycURL:
                     "Completed transfer of %d bytes from FTP location '%s' to '%s'.",
                     size_bytes,
                     src,
-                    str(dst),
+                    dst,
                 )
 
                 return size_bytes
@@ -166,11 +164,7 @@ class PycURL:
             If the FTP upload fails due to network or server-side issues.
         """
         dst = self._ensure_ftp_url(dst)
-        logger.debug(
-            "Starting file upload from local '%s' to FTP path '%s'.",
-            str(src),
-            dst,
-        )
+        logger.debug("Starting file upload from local '%s' to FTP path '%s'.", src, dst)
 
         curl = pycurl.Curl()
         curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
@@ -186,7 +180,7 @@ class PycURL:
         curl.setopt(pycurl.NOSIGNAL, 1)  # crucial for programs with multiple threads
         # Tests indicate that building the directory hierarchy before upload leads to
         # better performance in concurrent transfer scenarios.
-        # curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
+        curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
         curl.setopt(pycurl.INFILESIZE, os.path.getsize(src))
         curl.setopt(pycurl.UPLOAD, 1)
         for option, value in self._connection_parameters.extra_options.items():
@@ -195,7 +189,7 @@ class PycURL:
             with io.open(src, mode="rb") as stream:
                 curl.setopt(pycurl.READDATA, stream)
                 curl.perform()
-                logger.debug("Completed FTP upload of '%s' to '%s'.", str(src), dst)
+                logger.debug("Completed FTP upload of '%s' to '%s'.", src, dst)
         except pycurl.error as err:
             logger.exception("File could not be uploaded to the FTP server.")
             raise FTPError(
