@@ -166,18 +166,12 @@ class FTPFileSystem:
             """
             ftp = await self._pool.get()
             try:
-                while not stop_event.is_set():
-                    dirpath = None
+                while True:
                     try:
-                        dirpath = await asyncio.wait_for(
-                            queue.get(), timeout=self._connection_parameters.timeout
-                        )
+                        dirpath = await queue.get()
                         logger.debug("Processing directory from queue: %s", dirpath)
-                    except asyncio.TimeoutError:
-                        if stop_event.is_set():
-                            break
-
-                        continue
+                    except asyncio.CancelledError:
+                        break
 
                     try:
                         dirs, nondirs = await self._listdir(dirpath, ftp=ftp)
@@ -191,11 +185,16 @@ class FTPFileSystem:
                             "An unexpected error occurred at this program runtime."
                         )
                         stop_event.set()
+                        await output_queue.put(
+                            Exception("FTP walk worker encountered an error.")
+                        )
+
+                        break
                     finally:
-                        if dirpath is not None:
-                            queue.task_done()
-            except asyncio.CancelledError:
-                pass
+                        queue.task_done()
+
+                    if stop_event.set():
+                        break
             finally:
                 await self._pool.release(ftp)
 
@@ -205,65 +204,45 @@ class FTPFileSystem:
             for _ in range(self._connection_parameters.max_workers)
         ]
 
-        # Wait for either new results or traversal completion.
-        traversal_task = asyncio.create_task(queue.join())
-        get_output_task = asyncio.create_task(output_queue.get())
         try:
-            pending_tasks: set[asyncio.Future[typing.Any]] = set(
-                workers + [traversal_task, get_output_task]
-            )
+            # Wait until all tasks in the queue are done or an exception occurs.
             while True:
-                completed_tasks, pending_tasks = await asyncio.wait(
-                    pending_tasks,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                for task in completed_tasks:
-                    if task is traversal_task:
-                        break
-
-                    if task in workers:
-                        if task.exception() is not None:
-                            raise RuntimeError(
-                                "An FTP worker task encountered an unexpected error."
-                            ) from task.exception()
-
-                    if task is get_output_task:
-                        if (output := task.result()) is not None:
-                            yield output
-
-                        # Replace the task.
-                        get_output_task = asyncio.create_task(output_queue.get())
-                        pending_tasks.add(get_output_task)
-
-                if traversal_task.done():
-                    # All directories processed.
+                if stop_event.set():
                     break
 
-            # Yield the final result.
-            if get_output_task.done():
-                if (output := get_output_task.result()) is not None:
+                try:
+                    # Short timeout to periodically check stop event.
+                    output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
+
+                    if isinstance(output, Exception):
+                        raise RuntimeError("Walk worker error.") from output
+
                     yield output
+
+                    output_queue.task_done()
+                except asyncio.TimeoutError:
+                    if queue.empty():
+                        break
+
+            await queue.join()
+        finally:
+            stop_event.set()  # signal all workers to stop
+
+            for worker in workers:
+                worker.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
 
             # Drain any remaining items that might have been
             # placed onto the output queue before the workers were signaled to stop.
             while not output_queue.empty():
-                if (output := await output_queue.get()) is not None:
-                    yield output
+                output = await output_queue.get()
+
+                if isinstance(output, Exception):
+                    raise RuntimeError("Walk worker error.") from output
+
+                yield output
+
                 output_queue.task_done()
-        finally:
-            stop_event.set()  # signal all workers to stop
-
-            tasks_to_cleanup: list[asyncio.Task[typing.Any]] = workers + [
-                traversal_task
-            ]
-            if not get_output_task.done():
-                tasks_to_cleanup.append(get_output_task)
-
-            for task in tasks_to_cleanup:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks_to_cleanup, return_exceptions=True)
 
     @functools.singledispatchmethod
     async def makedirs(self, paths: typing.Collection[str | pathlib.Path]) -> None:
