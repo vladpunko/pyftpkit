@@ -105,22 +105,20 @@ class FTPLoader:
                     f"Cannot include directory {str(path)!r} in batch downloads."
                 )
 
-        async def _worker(
-            source: str | pathlib.Path, destination: str | pathlib.Path, /, index: int
-        ) -> None:
-            """Worker function to download a single file."""
-            await loop.run_in_executor(
+        tasks = [
+            loop.run_in_executor(
                 self._executor, self._pycurl.download, source, destination
             )
+            for source, destination in zip(src, dst, strict=True)
+        ]
+        index: int = 0
+        for future in asyncio.as_completed(tasks):
+            await future
+            index += 1
 
             if index % self._log_interval == 0:
                 logger.info("Downloaded %d / %d", index + 1, len(src))
 
-        tasks = [
-            _worker(source, destination, index)
-            for index, (source, destination) in enumerate(zip(src, dst, strict=True))
-        ]
-        await asyncio.gather(*tasks)
         logger.info("All downloads finished: %d / %d", len(src), len(dst))
 
     @download.register(pathlib.Path)
