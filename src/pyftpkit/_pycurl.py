@@ -179,8 +179,6 @@ class PycURL:
         )
         curl.setopt(pycurl.FTP_USE_EPSV, 1)
         curl.setopt(pycurl.NOSIGNAL, 1)  # crucial for programs with multiple threads
-        # Tests indicate that building the directory hierarchy before upload leads to
-        # better performance in concurrent transfer scenarios.
         curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
         curl.setopt(pycurl.INFILESIZE, os.path.getsize(src))
         curl.setopt(pycurl.UPLOAD, 1)

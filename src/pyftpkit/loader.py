@@ -33,28 +33,45 @@ def _is_dirpath(path: str | pathlib.Path) -> bool:
 
 
 class FTPLoader:
-    """"""
+    """Asynchronous FTP loader for performing concurrent file system operations.
 
-    DEFAULT_LOG_INTERVAL: typing.Final[int] = 10
+    Provides an interface for FTP file uploads and downloads with configurable
+    concurrency and periodic progress logging.
+    """
+
+    DEFAULT_LOGGING_INTERVAL: typing.Final[int] = 10
 
     def __init__(
         self,
         connections_parameters: ConnectionParameters,
         *,
-        log_interval: int = DEFAULT_LOG_INTERVAL,
+        log_interval: int = DEFAULT_LOGGING_INTERVAL,
     ) -> None:
         self._connections_parameters = connections_parameters
 
-        #
+        # Interval for logging progress during transfers.
         self._log_interval = log_interval
 
-        #
+        # Thread pool executor shared across all related classes to ensure a single
+        # pool of threads is used and prevent unexpected resource leaks.
         self._executor = ThreadPoolExecutor(
             max_workers=self._connections_parameters.max_workers
         )
 
-        #
         self._pycurl = PycURL(connection_parameters=self._connections_parameters)
+
+    @property
+    def log_interval(self) -> int:
+        """Returns the current logging interval for upload progress."""
+        return self._log_interval
+
+    @log_interval.setter
+    def log_interval(self, value: typing.Any) -> None:
+        """Sets the logging interval."""
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError("Logging interval must be a positive integer.")
+
+        self._log_interval = value
 
     @functools.singledispatchmethod
     async def download(
@@ -66,11 +83,11 @@ class FTPLoader:
         """Downloads one or more files from the FTP server in batch mode."""
         loop = asyncio.get_running_loop()
 
-        if any(map(_is_dirpath, src)):
+        for path in (path for path in src if _is_dirpath(path)):
             logger.error(
                 "It is not feasible to handle directories during FTP batch downloading."
             )
-            raise RuntimeError("Only file paths are allowed for batch downloads.")
+            raise RuntimeError(f"Invalid path for batch download: {path!s}")
 
         # Prepare destination paths.
         if isinstance(dst, (str, pathlib.Path)):
@@ -82,10 +99,10 @@ class FTPLoader:
                 )
                 raise RuntimeError("Source and destination path counts must be equal.")
 
-            if any(map(_is_dirpath, dst)):
+            for path in (path for path in dst if _is_dirpath(path)):
                 logger.error("One or more target paths are directories.")
                 raise RuntimeError(
-                    "Directories are not supported when performing a batch download."
+                    f"Cannot include directory {str(path)!r} in batch downloads."
                 )
 
         async def _worker(
@@ -96,7 +113,7 @@ class FTPLoader:
                 self._executor, self._pycurl.download, source, destination
             )
 
-            if self._log_interval > 0 and index % self._log_interval == 0:
+            if index % self._log_interval == 0:
                 logger.info("Downloaded %d / %d", index + 1, len(src))
 
         tasks = [
@@ -104,6 +121,7 @@ class FTPLoader:
             for index, (source, destination) in enumerate(zip(src, dst, strict=True))
         ]
         await asyncio.gather(*tasks)
+        logger.info("All downloads finished: %d / %d", len(src), len(dst))
 
     @download.register(pathlib.Path)
     @download.register(str)
@@ -112,11 +130,11 @@ class FTPLoader:
 
         Parameters
         ----------
-        src : str or pathlib.Path
-            Source path on the remote FTP server.
+        src : str or pathlib.Path, or collection of paths
+            Source path(s) on the remote FTP server.
 
-        dst : str or pathlib.Path
-            Local destination path.
+        dst : str or pathlib.Path, or list of paths
+            Local destination path(s).
 
         Raises
         ------
@@ -149,5 +167,113 @@ class FTPLoader:
                             dst_path = os.path.join(dst, os.path.relpath(path, src))
                             paths.append((path, dst_path))
 
+                    if not paths:
+                        logger.warning("No data found to download.")
+
+                        return None
+
                     src_paths, dst_paths = zip(*paths, strict=True)
                     await self.download(src_paths, dst_paths)
+
+    @functools.singledispatchmethod
+    async def upload(
+        self,
+        src: typing.Collection[str | pathlib.Path],
+        dst: str | pathlib.Path | list[str | pathlib.Path],
+        /,
+    ) -> None:
+        """Asynchronously uploads a single file to the specified destination."""
+        loop = asyncio.get_running_loop()
+
+        sources: list[pathlib.Path] = []
+        for path in src:
+            match (path := pathlib.Path(path)):
+                case _ if path.is_dir():
+                    sources.extend((item for item in path.rglob("*") if item.is_file()))
+
+                case _ if path.is_file():
+                    sources.append(path)
+
+                case _:
+                    logger.warning("Skipping invalid path: %s", path)
+
+        # Build list of target paths.
+        if isinstance(dst, (str, pathlib.Path)):
+            dst = [os.path.join(dst, os.path.basename(path)) for path in sources]
+        else:
+            if len(sources) != len(dst):
+                logger.error("Source and destination lists must match one-to-one.")
+                raise RuntimeError(
+                    "Number of sources does not match number of destinations."
+                )
+
+            for path in (path for path in dst if _is_dirpath(path)):
+                logger.error("Directories are not allowed as destination paths.")
+                raise RuntimeError(
+                    f"Upload failed due to invalid destination path: {path!s}"
+                )
+
+        async with FTPFileSystem(
+            connection_parameters=self._connections_parameters,
+            executor=self._executor,
+        ) as ftpfs:
+            # Tests indicate that building the directory hierarchy before upload leads
+            # to better performance in concurrent transfer scenarios.
+            await ftpfs.makedirs({pathlib.Path(path).parent for path in dst})
+
+        async def _worker(
+            source: str | pathlib.Path, destination: str | pathlib.Path, /, index: int
+        ) -> None:
+            """Worker function to upload a single file."""
+            await loop.run_in_executor(
+                self._executor, self._pycurl.upload, source, destination
+            )
+
+            if index % self._log_interval == 0:
+                logger.info("Uploaded %d / %d", index + 1, len(sources))
+
+        tasks = [
+            _worker(source, destination, index)
+            for index, (source, destination) in enumerate(
+                zip(sources, dst, strict=True)
+            )
+        ]
+        await asyncio.gather(*tasks)
+        logger.info("All uploads finished: %d / %d", len(sources), len(dst))
+
+    @upload.register(pathlib.Path)
+    @upload.register(str)
+    async def _(self, src: str | pathlib.Path, dst: str | pathlib.Path, /) -> None:
+        """Uploads single or multiple files and directories asynchronously.
+
+        Parameters
+        ----------
+        src : str or pathlib.Path, or collection of paths
+            Source file(s) or directory(s) to upload.
+
+        dst : str or pathlib.Path, or list of paths
+            Destination path(s).
+
+        Raises
+        ------
+        RuntimeError
+            Upload failed because there are no files, a destination is a directory, or
+            a directory was mapped to a file
+        """
+        match (os.path.isfile(src), os.path.isdir(src), _is_dirpath(dst)):
+            case (True, _, False):  # file to file
+                await self.upload([src], [dst])
+
+            case (True, _, True):  # file to directory
+                await self.upload([src], os.path.join(dst, os.path.basename(src)))
+
+            case (_, True, False):  # directory to file
+                logger.error("Cannot upload a directory to a single file destination.")
+                raise RuntimeError(
+                    "Directories in source require destinations of directory type."
+                    f"\nSource: {src!s}"
+                    f"\nDestination: {dst!s}"
+                )
+
+            case (_, True, True):  # directory to directory
+                await self.upload([src], dst)
