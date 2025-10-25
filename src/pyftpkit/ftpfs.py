@@ -205,8 +205,11 @@ class FTPFileSystem:
         ]
 
         try:
+            # Create a task to wait for all directories to be processed.
+            join_task = asyncio.create_task(queue.join())
+
             # Wait until all tasks in the queue are done or an exception occurs.
-            while True:
+            while not join_task.done():
                 if stop_event.set():
                     break
 
@@ -221,10 +224,11 @@ class FTPFileSystem:
 
                     output_queue.task_done()
                 except asyncio.TimeoutError:
-                    if queue.empty():
-                        break
+                    # Re-enter the loop to inspect the join task and check
+                    # for the stop event.
+                    pass
 
-            await queue.join()
+            await join_task
         finally:
             stop_event.set()  # signal all workers to stop
 
