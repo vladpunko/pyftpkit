@@ -117,7 +117,7 @@ class FTPLoader:
             index += 1
 
             if index % self._log_interval == 0:
-                logger.info("Downloaded %d / %d", index + 1, len(src))
+                logger.info("Downloaded %d / %d", index, len(src))
 
         logger.info("All downloads finished: %d / %d", len(src), len(dst))
 
@@ -219,24 +219,20 @@ class FTPLoader:
             # to better performance in concurrent transfer scenarios.
             await ftpfs.makedirs({pathlib.Path(path).parent for path in dst})
 
-        async def _worker(
-            source: str | pathlib.Path, destination: str | pathlib.Path, /, index: int
-        ) -> None:
-            """Worker function to upload a single file."""
-            await loop.run_in_executor(
+        tasks = [
+            loop.run_in_executor(
                 self._executor, self._pycurl.upload, source, destination
             )
+            for source, destination in zip(sources, dst, strict=True)
+        ]
+        index: int = 0
+        for future in asyncio.as_completed(tasks):
+            await future
+            index += 1
 
             if index % self._log_interval == 0:
-                logger.info("Uploaded %d / %d", index + 1, len(sources))
+                logger.info("Uploaded %d / %d", index, len(sources))
 
-        tasks = [
-            _worker(source, destination, index)
-            for index, (source, destination) in enumerate(
-                zip(sources, dst, strict=True)
-            )
-        ]
-        await asyncio.gather(*tasks)
         logger.info("All uploads finished: %d / %d", len(sources), len(dst))
 
     @upload.register(pathlib.Path)
@@ -258,6 +254,8 @@ class FTPLoader:
             Upload failed because there are no files, a destination is a directory, or
             a directory was mapped to a file
         """
+        src = str(src).rstrip("*")
+
         match (os.path.isfile(src), os.path.isdir(src), _is_dirpath(dst)):
             case (True, _, False):  # file to file
                 await self.upload([src], [dst])

@@ -148,6 +148,11 @@ class FTPFileSystem:
             - The current directory path.
             - A list of subdirectory paths under the current directory.
             - A list of file paths under the current directory.
+
+        Raises
+        ------
+        RuntimeError
+            If an FTP worker encounters a critical error.
         """
         stop_event = asyncio.Event()
 
