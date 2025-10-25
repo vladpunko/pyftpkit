@@ -4,22 +4,28 @@
 
 import pathlib
 import typing
+from concurrent.futures import ThreadPoolExecutor
 
 from pyftpkit.connection_parameters import ConnectionParameters
 
 __all__: list[str] = ["FTPFileSystem"]
 
 class FTPFileSystem:
-    def __init__(self, connection_parameters: ConnectionParameters) -> None: ...
+    def __init__(
+        self,
+        connection_parameters: ConnectionParameters,
+        *,
+        executor: ThreadPoolExecutor | None = None,
+    ) -> None: ...
     async def __aenter__(self) -> FTPFileSystem: ...
     async def __aexit__(self, *args: typing.Any, **kwargs: typing.Any) -> None: ...
     async def listdir(
         self, path: str | pathlib.Path
     ) -> tuple[list[pathlib.Path], list[pathlib.Path]]: ...
-    async def walk(
+    def walk(
         self, path: str | pathlib.Path
-    ) -> typing.AsyncGenerator[
-        tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]], None
+    ) -> typing.AsyncIterator[
+        tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]]
     ]: ...
     @typing.overload
     async def makedirs(self, paths: typing.Iterable[str | pathlib.Path]) -> None: ...

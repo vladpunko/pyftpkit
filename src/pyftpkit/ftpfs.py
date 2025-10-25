@@ -10,6 +10,7 @@ import logging
 import os
 import pathlib
 import typing
+from concurrent.futures import ThreadPoolExecutor
 
 from pyftpkit._pathtrie import PathTrie
 from pyftpkit._pool import FTPPoolExecutor
@@ -29,12 +30,19 @@ class FTPFileSystem:
     stored on a remote FTP server.
     """
 
-    def __init__(self, connection_parameters: ConnectionParameters) -> None:
+    def __init__(
+        self,
+        connection_parameters: ConnectionParameters,
+        *,
+        executor: ThreadPoolExecutor | None = None,
+    ) -> None:
         self._connection_parameters = connection_parameters
 
         # Initialize a managed pool of pre-authenticated FTP connections. This design
         # drastically reduces the overhead of repeated handshakes and logins.
-        self._pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+        self._pool = FTPPoolExecutor(
+            connection_parameters=connection_parameters, executor=executor
+        )
 
     async def __aenter__(self) -> "FTPFileSystem":
         await self._pool.open()
@@ -118,8 +126,8 @@ class FTPFileSystem:
 
     async def walk(
         self, path: str | pathlib.Path
-    ) -> typing.AsyncGenerator[
-        tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]], None
+    ) -> typing.AsyncIterator[
+        tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]]
     ]:
         """Asynchronously traverses a remote FTP directory tree.
 
@@ -258,7 +266,7 @@ class FTPFileSystem:
             await asyncio.gather(*tasks_to_cleanup, return_exceptions=True)
 
     @functools.singledispatchmethod
-    async def makedirs(self, paths: typing.Iterable[str | pathlib.Path]) -> None:
+    async def makedirs(self, paths: typing.Collection[str | pathlib.Path]) -> None:
         """Recursively creates multiple directories on the remote FTP server."""
         loop = asyncio.get_running_loop()
 

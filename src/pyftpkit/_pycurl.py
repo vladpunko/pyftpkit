@@ -104,6 +104,7 @@ class PycURL:
                 self._connection_parameters.credentials.password.get_secret_value(),
             ),
         )
+        curl.setopt(pycurl.FTP_FILEMETHOD, pycurl.FTPMETHOD_NOCWD)
         curl.setopt(pycurl.FTP_USE_EPSV, 1)
         curl.setopt(pycurl.NOSIGNAL, 1)  # essential for multi-threaded programs
         curl.setopt(pycurl.BUFFERSIZE, io.DEFAULT_BUFFER_SIZE)
