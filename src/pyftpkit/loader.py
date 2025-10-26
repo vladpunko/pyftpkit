@@ -39,13 +39,15 @@ class FTPLoader:
     concurrency and periodic progress logging.
     """
 
-    DEFAULT_LOGGING_INTERVAL: typing.Final[int] = 10
+    DEFAULT_LOGGER_INTERVAL: typing.Final[int] = int(
+        os.environ.get("PYFTPKIT_LOGGER_INTERVAL", 10)
+    )
 
     def __init__(
         self,
         connections_parameters: ConnectionParameters,
         *,
-        log_interval: int = DEFAULT_LOGGING_INTERVAL,
+        log_interval: int = DEFAULT_LOGGER_INTERVAL,
     ) -> None:
         self._connections_parameters = connections_parameters
 

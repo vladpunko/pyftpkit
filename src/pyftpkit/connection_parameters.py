@@ -18,6 +18,14 @@ class Credentials(pydantic.BaseModel):
 class ConnectionParameters(pydantic_settings.BaseSettings):
     """Connection parameters for establishing and managing FTP connections."""
 
+    model_config = pydantic_settings.SettingsConfigDict(
+        env_file_encoding="utf-8",
+        env_file=".env",
+        env_nested_delimiter="__",
+        env_prefix="PYFTPKIT_",
+        extra="ignore",
+    )
+
     host: str
     port: int = 0  # no ports
     credentials: Credentials
