@@ -28,6 +28,20 @@ PathTrieIterator::Iter()
 std::string
 PathTrieIterator::JoinPath(const std::string &prefix, const std::string &path_part) const
 {
+    // Skip current directory references.
+    if (path_part == ".") {
+        return prefix;
+    }
+
+    // Handle parent directory reference.
+    if (path_part == "..") {
+        auto pos = prefix.find_last_of(PathTrie::kUnixSep);
+        if (pos == std::string::npos || pos == 0) {
+            return "/";
+        }
+        return prefix.substr(0, pos);
+    }
+
     if (!prefix.empty() && prefix.back() != PathTrie::kUnixSep) {
         return prefix + PathTrie::kUnixSep + path_part;
     }
@@ -61,6 +75,10 @@ PathTrieIterator::Next()
 
         std::string path = JoinPath(top.prefix, path_part);
         PushFrame(child, path);
+
+        if (path_part != "." && path_part != "..") {
+            return path;
+        }
 
         return path;
     }

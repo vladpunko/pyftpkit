@@ -1,3 +1,97 @@
 [build-system]
 requires = ["setuptools>=80", "wheel>=0.45", "ninja>=1.13", "pybind11>=3.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+addopts = [
+  "-vv",
+  "-x",  # exit instantly on first error or failed test
+  # ---
+  "--cov-report=html",
+  "--cov-report=term",
+  "--cov",
+  "--doctest-modules",
+  "--durations=10",
+  "--failed-first",
+  "--import-mode=importlib",
+  "--new-first",
+  # ---
+  "--html=./.pytest_report/index.html",
+]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+omit = [
+  "src/pyftpkit/__about__.py",
+  "src/pyftpkit/__init__.py",
+  "src/pyftpkit/__main__.py",
+]
+parallel = true
+source = ["src/pyftpkit"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "@abc.abstractmethod",
+
+  # We have to re-enable the standard pragma.
+  "pragma: no cover",
+
+  # Do not complain about missing debug-only code.
+  "def __repr__",
+  "if self.debug:",
+
+  # No need to complain if tests do not hit defensive assertion code.
+  "pass",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "return NotImplemented",
+
+  # Do not complain if non-runnable code is not run.
+  "if __name__ == .__main__.:",
+  "if 0:",
+  "if False:",
+]
+show_missing = true
+
+[tool.black]
+target-version = ["py310", "py311", "py312"]
+
+[tool.bandit]
+exclude_dirs = [
+  "docs/",
+  "tests/",
+]
+
+[tool.deptry]
+extend_exclude = [
+  "^docs/",
+  "^examples/",
+  "^tests/",
+]
+known_first_party = ["pyftpkit"]
+
+[tool.isort]
+profile = "black"
+known_local_folder = ["pyftpkit"]
+
+[tool.mypy]
+disallow_untyped_defs = true
+exclude = [
+  ".pyi$",
+  "^docs/",
+  "^examples/",
+  "^tests/",
+]
+ignore_missing_imports = true
+plugins = "pydantic.mypy"
+strict_optional = true
+
+[tool.ruff]
+exclude = [
+  "*.pyi",
+  "docs/",
+  "tests/",
+]
+line-length = 88
+select = ["A", "B", "C", "E", "F", "N", "W"]

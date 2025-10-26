@@ -28,12 +28,12 @@ public:
     void Insert(const std::string &path);
     std::vector<std::string> GetAllUniquePaths() const;
 
+private:
+    std::unique_ptr<TrieNode> root_;
+
     static constexpr char kUnixSep = '/';
     static constexpr size_t kDepthReserve = 1 << 12;  // estimated average path depth in the trie
     static constexpr size_t kPathsReserve = 1 << 12;  // expected number of unique paths
-
-private:
-    std::unique_ptr<TrieNode> root_;
 
     void CollectPaths(const TrieNode *node,
                       std::string &buffer,

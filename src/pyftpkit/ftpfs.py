@@ -262,7 +262,7 @@ class FTPFileSystem:
         try:
             pathtrie = PathTrie()
             for path in paths:
-                pathtrie.insert(str(path))
+                pathtrie.insert(os.path.normpath(path))
 
             for dirpath in pathtrie:
                 if dirpath == os.sep:

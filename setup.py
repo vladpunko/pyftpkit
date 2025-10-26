@@ -67,7 +67,7 @@ class CMakeBuild(pybind11.setup_helpers.build_ext):
 setuptools.setup(
     name="pyftpkit",
     version=__version__,
-    description="",
+    description="Asynchronous library for FTP-based file system operations",
     long_description="",
     long_description_content_type="text/markdown",
     author="Vladislav Punko",
@@ -79,7 +79,33 @@ setuptools.setup(
         "Source code": "https://github.com/vladpunko/pyftpkit",
     },
     python_requires=">=3.10",
-    install_requires=[],
+    install_requires=[
+        "pycurl>=7.45.5,<8",
+        "pydantic>=2.11.5,<3",
+        "pydantic_settings>=2.10,<3",
+    ],
+    extras_require={
+        "dev": [
+            "bandit>=1.8,<2.0",
+            "black>=25.1,<26.0",
+            "deptry>=0.23,<1.0",
+            "flake8>=7.1,<8.0",
+            "isort>=6.0,<7.0",
+            "mypy>=1.14,<2.0",
+            "pre-commit>=4.1,<5.0",
+            "ruff>=0.9,<1.0",
+            "twine>=6.1,<7.0",
+        ],
+        "tests": [
+            "coverage>=7.6,<8.0",
+            "pyfakefs>=5.7,<6.0",
+            "pytest>=8.3,<9.0",
+            "pytest-cov>=6.0,<7.0",
+            "pytest-html>=4.1,<5.0",
+            "pytest-mock>=3.14,<4.0",
+            "tox>=4.24,<5.0",
+        ],
+    },
     platforms=["macOS", "POSIX"],
     package_dir={"": "src"},
     packages=[
