@@ -261,7 +261,7 @@ class FTPLoader:
                 await self.upload([src], [dst])
 
             case (True, _, True):  # file to directory
-                await self.upload([src], os.path.join(dst, os.path.basename(src)))
+                await self.upload([src], dst)
 
             case (_, True, False):  # directory to file
                 logger.error("Cannot upload a directory to a single file destination.")

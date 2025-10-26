@@ -382,6 +382,9 @@ class FTPFileSystem:
             while dirs:
                 dirpath = dirs.pop()
 
+                if str(dirpath) == os.sep:
+                    continue
+
                 logger.debug("Attempting to delete: %s", dirpath)
                 await loop.run_in_executor(self._pool.executor, ftp.rmd, str(dirpath))
                 logger.debug("Remote directory removed: %s", dirpath)
