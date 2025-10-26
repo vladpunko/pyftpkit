@@ -24,7 +24,6 @@ testpaths = ["tests"]
 branch = true
 omit = [
   "src/pyftpkit/__about__.py",
-  "src/pyftpkit/__init__.py",
   "src/pyftpkit/__main__.py",
 ]
 parallel = true
