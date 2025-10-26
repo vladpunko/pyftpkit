@@ -9,9 +9,9 @@ import typing
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 
+from pyftpkit._ftp import FTP
 from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.exceptions import FTPError
-from pyftpkit.ftp import FTP
 
 __all__ = ["FTPPoolExecutor"]
 
