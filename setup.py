@@ -80,8 +80,8 @@ setuptools.setup(
     },
     python_requires=">=3.10",
     install_requires=[
-        "pycurl>=7.45.5,<8",
-        "pydantic>=2.11.5,<3",
+        "pycurl>=7.45.2,<8",
+        "pydantic>=2.7,<3",
         "pydantic_settings>=2.10,<3",
     ],
     extras_require={
@@ -99,10 +99,12 @@ setuptools.setup(
         "tests": [
             "coverage>=7.6,<8.0",
             "pyfakefs>=5.7,<6.0",
-            "pytest>=8.3,<9.0",
+            "pyftpdlib>=2.0,<3",
+            "pytest-asyncio>=1.1,<2",
             "pytest-cov>=6.0,<7.0",
             "pytest-html>=4.1,<5.0",
             "pytest-mock>=3.14,<4.0",
+            "pytest>=8.3,<9.0",
             "tox>=4.24,<5.0",
         ],
     },

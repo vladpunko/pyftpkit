@@ -12,7 +12,27 @@ import pycurl
 import pytest
 
 from pyftpkit._pycurl import PycURL
+from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.exceptions import FTPError
+
+
+@pytest.fixture
+def connection_parameters(
+    host,
+    port,
+    username,
+    password,
+):
+    return ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -83,7 +103,9 @@ def test_download(
     connection_parameters,
     pycurl_instance,
 ):
-    connection_parameters.extra_options = {pycurl.VERBOSE: 1}
+    connection_parameters.extra_options = {
+        pycurl.VERBOSE: 1,
+    }
 
     src = "/1/2/3/text.txt"
 
@@ -145,7 +167,7 @@ def test_download_with_error(caplog, fs, host, port, pycurl_instance, pycurl_moc
     assert message in str(err.value)
 
 
-def test_download_with_io_error(caplog, fs, pycurl_instance, pycurl_mock):
+def test_download_with_fs_error(caplog, fs, pycurl_instance, pycurl_mock):
     src = "/text.txt"
     dst = pathlib.Path("/test")
     dst.mkdir()
@@ -174,7 +196,9 @@ def test_upload(
     connection_parameters,
     pycurl_instance,
 ):
-    connection_parameters.extra_options = {pycurl.VERBOSE: 1}
+    connection_parameters.extra_options = {
+        pycurl.VERBOSE: 1,
+    }
 
     src = pathlib.Path("text.txt")
     src.write_text("test")
@@ -227,7 +251,7 @@ def test_upload_with_error(caplog, fs, host, port, pycurl_instance, pycurl_mock)
     assert message in str(err.value)
 
 
-def test_download_with_io_error(caplog, fs, pycurl_mock, pycurl_instance):
+def test_upload_with_fs_error(caplog, fs, pycurl_mock, pycurl_instance):
     src = pathlib.Path("/test")
     src.mkdir()
     dst = "/"

@@ -53,7 +53,7 @@ class FTPFileSystem:
         await self._pool.close()
 
     async def _listdir(
-        self, path: str | pathlib.Path, *, ftp: FTP
+        self, path: str | pathlib.Path, ftp: FTP
     ) -> tuple[list[pathlib.Path], list[pathlib.Path]]:
         """Retrieve the directory contents from the remote FTP server."""
         loop = asyncio.get_running_loop()
@@ -73,7 +73,7 @@ class FTPFileSystem:
         for entry in entries:
             # Skip empty or malformed lines.
             # A valid line begins with a 10-character permission field.
-            if not (entry) or len(entry) < 10:
+            if not entry or len(entry) < 10:
                 continue
 
             name = entry.strip().split(maxsplit=8).pop()
