@@ -261,9 +261,6 @@ class FTPPoolExecutor:
             # Clear the weakset now that we have a strong reference to all connections.
             self._connections.clear()
 
-            if not connections:
-                logger.debug("FTP pool is empty.")
-
             tasks = [
                 loop.run_in_executor(self._executor, self._close_connection, connection)
                 for connection in connections

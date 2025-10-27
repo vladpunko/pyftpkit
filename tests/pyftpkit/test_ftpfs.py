@@ -195,7 +195,7 @@ async def test_walk_drain_output_queue(mocker, ftp_server, connection_parameters
 
     async def listdir(self, path, ftp):
         if path.name == "test":
-            await asyncio.sleep(0.5)  # short delay
+            await asyncio.sleep(random.uniform(0.1, 0.5))  # short delay
         return await original_listdir(self, path, ftp)
 
     mocker.patch(
