@@ -201,8 +201,7 @@ class FTPLoader:
         if isinstance(dst, (str, pathlib.Path)):
             dst = pathlib.Path(dst)
 
-            commonpath = os.path.commonpath(sources)
-            commonpath = pathlib.Path(commonpath)
+            commonpath = pathlib.Path(os.path.commonpath(sources))
 
             dst = [
                 (

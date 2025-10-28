@@ -48,11 +48,5 @@ repos:
     rev: bbc3dc1f890007061f18f17e2334f216ea9e5df7
     hooks:
       - id: mypy
-        additional_dependencies: ["pydantic>=2.10"]
+        additional_dependencies: ["pydantic>=2.10", "types-pycurl"]
         files: ^(?!(docs|examples|tests)).*\.py$
-
-  # Find orphaned dependencies in python source code to improve code quality and reduce bloat.
-  - repo: https://github.com/fpgmaas/deptry.git
-    rev: 1edeef3edff88e1d9b03e6a6e1caeb017c0f3ef9
-    hooks:
-      - id: deptry

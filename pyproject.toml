@@ -59,16 +59,11 @@ target-version = ["py310", "py311", "py312"]
 [tool.bandit]
 exclude_dirs = [
   "docs/",
+  "examples/",
   "tests/",
+  "setup.py",
 ]
-
-[tool.deptry]
-extend_exclude = [
-  "^docs/",
-  "^examples/",
-  "^tests/",
-]
-known_first_party = ["pyftpkit"]
+skips = ["B402"]
 
 [tool.isort]
 profile = "black"

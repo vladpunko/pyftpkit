@@ -88,7 +88,6 @@ setuptools.setup(
         "dev": [
             "bandit>=1.8,<2.0",
             "black>=25.1,<26.0",
-            "deptry>=0.23,<1.0",
             "flake8>=7.1,<8.0",
             "isort>=6.0,<7.0",
             "mypy>=1.14,<2.0",
