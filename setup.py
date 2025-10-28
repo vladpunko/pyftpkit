@@ -16,7 +16,7 @@ import pybind11
 import pybind11.setup_helpers
 import setuptools
 
-__version__ = "1.0.0"
+__version__ = "0.1.0"
 
 CMAKE = shutil.which("cmake3") or shutil.which("cmake")
 
@@ -66,9 +66,9 @@ class CMakeBuild(pybind11.setup_helpers.build_ext):
         subprocess.check_call(shlex.split(f"{CMAKE!s} --build ."), cwd=build_path)
 
 
-_os_name = platform.system().lower()
+OS_NAME = platform.system().lower()
 # Make sure this python package is compatible with the current operating system.
-if _os_name == "windows" or _os_name.startswith("cygwin"):
+if OS_NAME == "windows" or OS_NAME.startswith("cygwin"):
     raise RuntimeError("The pyftpkit library doesn't support windows at this moment.")
 
 
