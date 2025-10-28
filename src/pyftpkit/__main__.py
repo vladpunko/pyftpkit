@@ -42,7 +42,7 @@ class SingleOrList(argparse.Action):
         setattr(namespace, self.dest, first if not other else values)
 
 
-async def main() -> None:
+async def _main() -> None:
     """The command-line interface."""
     parser = argparse.ArgumentParser(
         description="A command-line tool for FTP file transfers and management."
@@ -129,5 +129,10 @@ async def main() -> None:
         sys.exit(os.EX_OK)
 
 
+def main() -> None:
+    """This function is only necessary for creating an entry point script."""
+    asyncio.run(_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

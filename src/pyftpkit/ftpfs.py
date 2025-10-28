@@ -363,7 +363,8 @@ class FTPFileSystem:
         if nondirs:
             logger.debug("Deleting %d files from the FTP server...", len(nondirs))
             completed_tasks, pending_tasks = await asyncio.wait(
-                list(map(self.rm, nondirs)), return_when=asyncio.ALL_COMPLETED
+                [asyncio.create_task(self.rm(path)) for path in nondirs],
+                return_when=asyncio.ALL_COMPLETED,
             )
 
             # Cancel anything still pending (should be none).

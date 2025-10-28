@@ -112,6 +112,11 @@ setuptools.setup(
     packages=[
         "pyftpkit",
     ],
+    entry_points={
+        "console_scripts": [
+            "pyftpkit = pyftpkit.__main__:main",
+        ],
+    },
     ext_modules=[
         CMakeExtension("pyftpkit._pathtrie"),
     ],
