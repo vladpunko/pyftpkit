@@ -34,14 +34,9 @@ jobs:
               curl \
               libcurl4-openssl-dev \
               libssl-dev \
+              make \
               repo \
             && sudo apt-get clean \
             && sudo rm --recursive --force /var/lib/apt/lists/*
-
-          repo init \
-            --manifest-branch=master \
-            --manifest-name=manifest.xml \
-            --manifest-url=https://github.com/vladpunko/pyftpkit.git
-          repo sync
       - name: Step -- 5.
-        run: tox -e ${{ matrix.python-version }}
+        run: PYTHON_VERSION=${{ matrix.python-version }} make tests

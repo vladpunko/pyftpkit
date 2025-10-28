@@ -5,6 +5,7 @@
 # Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
 import os
+import pathlib
 import shlex
 import shutil
 import subprocess
@@ -79,33 +80,10 @@ setuptools.setup(
         "Source code": "https://github.com/vladpunko/pyftpkit",
     },
     python_requires=">=3.10",
-    install_requires=[
-        "pycurl>=7.45.2,<8",
-        "pydantic>=2.7,<3",
-        "pydantic_settings>=2.10,<3",
-    ],
+    install_requires=pathlib.Path("requirements.txt").read_text().splitlines(),
     extras_require={
-        "dev": [
-            "bandit>=1.8,<2.0",
-            "black>=25.1,<26.0",
-            "flake8>=7.1,<8.0",
-            "isort>=6.0,<7.0",
-            "mypy>=1.14,<2.0",
-            "pre-commit>=4.1,<5.0",
-            "ruff>=0.9,<1.0",
-            "twine>=6.1,<7.0",
-        ],
-        "tests": [
-            "coverage>=7.6,<8.0",
-            "pyfakefs>=5.7,<6.0",
-            "pyftpdlib>=2.0,<3",
-            "pytest-asyncio>=1.1,<2",
-            "pytest-cov>=6.0,<7.0",
-            "pytest-html>=4.1,<5.0",
-            "pytest-mock>=3.14,<4.0",
-            "pytest>=8.3,<9.0",
-            "tox>=4.24,<5.0",
-        ],
+        "dev": pathlib.Path("requirements-dev.txt").read_text().splitlines(),
+        "tests": pathlib.Path("requirements-tests.txt").read_text().splitlines(),
     },
     platforms=["macOS", "POSIX"],
     package_dir={"": "src"},
