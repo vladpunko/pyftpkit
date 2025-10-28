@@ -43,10 +43,10 @@ install: build
 hooks: venv
 	@$(PYTHON) -m pre_commit install --config .githooks.yml
 
-tests: venv
+tests: bootstrap
 	@$(PYTHON) -m tox -e $(PYTHON_VERSION)
 
-lint: venv
+lint: bootstrap
 	@$(PYTHON) -m tox -e lint
 
 .PHONY: clean
