@@ -19,7 +19,7 @@ jobs:
           python-version: "3.x"
 
       - name: Step -- 3.
-        run: pip3 install --upgrade pip && pip3 install --no-cache-dir --upgrade 'tox>=4.0.0'
+        run: pip3 install --upgrade pip && pip3 install --no-cache-dir --upgrade tox
 
       - name: Step -- 4.
         run: tox -e lint

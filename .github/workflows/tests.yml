@@ -1,0 +1,47 @@
+name: python testing
+
+on:
+  push:
+    branches:
+      - "master"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Step -- 1.
+        uses: actions/checkout@v4
+
+      - name: Step -- 2.
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Step -- 3.
+        run: pip3 install --upgrade pip && pip3 install --no-cache-dir --upgrade tox
+
+      - name: Step -- 4.
+        run: |
+          set -ex \
+            && sudo apt-get update --yes \
+            && sudo apt-get install --yes --no-install-recommends \
+              build-essential \
+              curl \
+              libcurl4-openssl-dev \
+              libssl-dev \
+              repo \
+            && sudo apt-get clean \
+            && sudo rm --recursive --force /var/lib/apt/lists/*
+
+          repo init \
+            --manifest-branch=master \
+            --manifest-name=manifest.xml \
+            --manifest-url=https://github.com/vladpunko/pyftpkit.git
+          repo sync
+      - name: Step -- 5.
+        run: tox -e ${{ matrix.python-version }}
