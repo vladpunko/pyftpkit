@@ -6,6 +6,7 @@
 
 import os
 import pathlib
+import platform
 import shlex
 import shutil
 import subprocess
@@ -65,11 +66,17 @@ class CMakeBuild(pybind11.setup_helpers.build_ext):
         subprocess.check_call(shlex.split(f"{CMAKE!s} --build ."), cwd=build_path)
 
 
+_os_name = platform.system().lower()
+# Make sure this python package is compatible with the current operating system.
+if _os_name == "windows" or _os_name.startswith("cygwin"):
+    raise RuntimeError("The pyftpkit library doesn't support windows at this moment.")
+
+
 setuptools.setup(
     name="pyftpkit",
     version=__version__,
     description="Asynchronous library for FTP-based file system operations",
-    long_description="",
+    long_description=pathlib.Path("README.md").read_text(),
     long_description_content_type="text/markdown",
     author="Vladislav Punko",
     author_email="iam.vlad.punko@gmail.com",
@@ -102,5 +109,22 @@ setuptools.setup(
         "build_ext": CMakeBuild,
     },
     include_package_data=True,
-    classifiers=[],
+    classifiers=[
+        "Intended Audience :: Developers",
+        "Intended Audience :: System Administrators",
+        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: POSIX",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Topic :: Software Development :: Libraries",
+        "Topic :: Software Development",
+        "Topic :: Utilities",
+        "Typing :: Typed",
+        "License :: OSI Approved :: MIT License",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
+    ],
 )
