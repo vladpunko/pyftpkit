@@ -77,7 +77,7 @@ class FTPPoolExecutor:
             ) from err
 
         try:
-            self._lock
+            self._lock  # noqa: B018
         except AttributeError:
             self._lock = asyncio.Lock()
             logger.debug(

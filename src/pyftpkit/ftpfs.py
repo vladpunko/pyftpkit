@@ -124,7 +124,7 @@ class FTPFileSystem:
         finally:
             await self._pool.release(ftp)
 
-    async def walk(
+    async def walk(  # noqa: C901
         self, path: str | pathlib.Path
     ) -> typing.AsyncIterator[
         tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]]
@@ -160,7 +160,7 @@ class FTPFileSystem:
         await queue.put(pathlib.Path(path))
 
         output_queue: asyncio.Queue[
-            tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]]
+            tuple[pathlib.Path, list[pathlib.Path], list[pathlib.Path]] | Exception
         ] = asyncio.Queue()
 
         async def _worker() -> None:
@@ -198,7 +198,7 @@ class FTPFileSystem:
                     finally:
                         queue.task_done()
 
-                    if stop_event.set():
+                    if stop_event.is_set():
                         break
             finally:
                 await self._pool.release(ftp)
@@ -215,7 +215,7 @@ class FTPFileSystem:
 
             # Wait until all tasks in the queue are done or an exception occurs.
             while not join_task.done():
-                if stop_event.set():
+                if stop_event.is_set():
                     break
 
                 try:
@@ -272,7 +272,7 @@ class FTPFileSystem:
                     await loop.run_in_executor(
                         self._pool.executor, ftp.cwd, str(dirpath)
                     )
-                except ftplib.all_errors as err:
+                except ftplib.all_errors:
                     try:
                         logger.debug("Creating a new directory: %s", dirpath)
                         await loop.run_in_executor(

@@ -31,7 +31,7 @@ def test_insert(paths, expected_paths):
     for path in paths:
         trie.insert(path)
 
-    for path, expected_path in zip(trie, expected_paths):
+    for path, expected_path in zip(trie, expected_paths, strict=True):
         assert path == expected_path
 
 

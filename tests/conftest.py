@@ -35,7 +35,7 @@ def password():
 
 
 @pytest.fixture
-def ftp_server(fs, username, password):
+def ftp_server(username, password):
     homedir = tempfile.mkdtemp()
 
     authorizer = DummyAuthorizer()

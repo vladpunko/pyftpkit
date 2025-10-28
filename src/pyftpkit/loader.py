@@ -21,10 +21,10 @@ logger = logging.getLogger("pyftpkit")
 
 def _is_dirpath(path: str | pathlib.Path) -> bool:
     """Detects if a path is a directory using its trailing slash or separator."""
-    path = pathlib.Path(path)
-
     if str(path).endswith(os.sep):
         return True
+
+    path = pathlib.Path(path)
 
     if path.name.startswith(".") or path.suffix:
         return False
@@ -119,7 +119,7 @@ class FTPLoader:
             index += 1
 
             if index % self._log_interval == 0:
-                logger.info("Downloaded %d / %d", index, len(src))
+                logger.info("Downloaded: %d / %d", index, len(src))
 
         logger.info("All downloads finished: %d / %d", len(src), len(dst))
 
@@ -199,7 +199,19 @@ class FTPLoader:
 
         # Build list of target paths.
         if isinstance(dst, (str, pathlib.Path)):
-            dst = [os.path.join(dst, os.path.basename(path)) for path in sources]
+            dst = pathlib.Path(dst)
+
+            commonpath = os.path.commonpath(sources)
+            commonpath = pathlib.Path(commonpath)
+
+            dst = [
+                (
+                    dst / source.name
+                    if source == commonpath
+                    else dst / source.relative_to(commonpath)
+                )
+                for source in sources
+            ]
         else:
             if len(sources) != len(dst):
                 logger.error("Source and destination lists must match one-to-one.")
@@ -233,7 +245,7 @@ class FTPLoader:
             index += 1
 
             if index % self._log_interval == 0:
-                logger.info("Uploaded %d / %d", index, len(sources))
+                logger.info("Uploaded: %d / %d", index, len(sources))
 
         logger.info("All uploads finished: %d / %d", len(sources), len(dst))
 

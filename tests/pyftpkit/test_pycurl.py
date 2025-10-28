@@ -261,7 +261,7 @@ def test_upload_with_fs_error(caplog, fs, pycurl_mock, pycurl_instance):
             pycurl_instance.upload(src, dst)
 
     message = "File read operation failed on local system."
-    message in caplog.text
+    assert message in caplog.text
 
     message = f"An error occurred while accessing the local file: {src!s}."
     assert message in str(err.value)

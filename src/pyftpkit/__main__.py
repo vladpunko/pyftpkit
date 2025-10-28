@@ -43,7 +43,7 @@ class SingleOrList(argparse.Action):
 
 
 async def main() -> None:
-    """"""
+    """The command-line interface."""
     parser = argparse.ArgumentParser(
         description="A command-line tool for FTP file transfers and management."
     )
@@ -100,9 +100,7 @@ async def main() -> None:
     try:
         arguments = parser.parse_args()
 
-        ftp_loader = FTPLoader(
-            connections_parameters=ConnectionParameters()  # type: ignore
-        )
+        ftp_loader = FTPLoader(connections_parameters=ConnectionParameters())
         match FTPCommand(arguments.cmd):
             case FTPCommand.DOWNLOAD:
                 await ftp_loader.download(arguments.src, arguments.dst)

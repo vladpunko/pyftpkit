@@ -61,9 +61,10 @@ async def main() -> None:
         ],
     )
 
-    # Upload all files matching a wildcard pattern by scanning the directory.
-    # All collected files are uploaded to the target directory without preserving
-    # the local directory structure.
+    # Upload all files resolved from the provided source(s), computing a common
+    # base directory to maintain their relative structure under the destination
+    # path. The resulting uploads mirror the local directory hierarchy rooted at
+    # the common path on the remote target.
     await ftp_loader.upload("./test/all/*", "/test/")
 
 
