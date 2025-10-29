@@ -62,6 +62,7 @@ async def _main() -> None:
         type=pathlib.Path,
         required=True,
         nargs="+",
+        metavar="SRC",
         action=SingleOrList,
         help="remote file(s) or directory(ies) on the FTP server to download",
     )
@@ -71,6 +72,7 @@ async def _main() -> None:
         type=pathlib.Path,
         required=True,
         nargs="+",
+        metavar="DST",
         action=SingleOrList,
         help="local destination path(s) where the files or directories will be saved",
     )
@@ -84,6 +86,7 @@ async def _main() -> None:
         type=pathlib.Path,
         required=True,
         nargs="+",
+        metavar="SRC",
         action=SingleOrList,
         help="local file(s) or directory(ies) to upload to the FTP server",
     )
@@ -93,6 +96,7 @@ async def _main() -> None:
         type=pathlib.Path,
         required=True,
         nargs="+",
+        metavar="DST",
         action=SingleOrList,
         help="remote destination path(s) on the FTP server",
     )
