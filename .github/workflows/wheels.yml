@@ -1,0 +1,66 @@
+name: build wheels
+
+on:
+  push:
+    branches:
+      - "master"
+
+jobs:
+  build_wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            arch: arm64
+          - os: macos-14
+            arch: arm64
+          - os: ubuntu-22.04
+            arch: x86_64
+          - os: ubuntu-22.04-arm
+            arch: aarch64
+
+    steps:
+      - name: Step -- 1.
+        uses: actions/checkout@v4
+
+      - name: Step -- 2.
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Step -- 3.
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          set -ex \
+            && sudo apt-get update --yes \
+            && sudo apt-get install --yes --no-install-recommends \
+              make \
+              repo \
+            && sudo apt-get clean \
+            && sudo rm --recursive --force /var/lib/apt/lists/*
+
+      - name: Step -- 3.
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          set -ex \
+            && brew update \
+            && brew install make repo
+
+      - name: Step -- 4.
+        run: make bootstrap
+
+      - name: Step -- 5.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cibuildwheel wheel
+
+      - name: Step -- 6.
+        env:
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
+          CIBW_SKIP: "pp*"
+          CIBW_ARCHS_MACOS: ${{ matrix.arch }}
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+        run: |
+          python -m cibuildwheel --output-dir wheelhouse
