@@ -14,8 +14,6 @@ jobs:
         include:
           - os: macos-14
             arch: arm64
-          - os: macos-15
-            arch: arm64
           - os: ubuntu-22.04
             arch: x86_64
           - os: ubuntu-22.04-arm
@@ -61,5 +59,7 @@ jobs:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-* cp314-*"
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          CIBW_TEST_COMMAND: "pytest -v {project}/tests"
+          CIBW_TEST_REQUIRES: "-r requirements-tests.txt"
         run: |
           python -m cibuildwheel --output-dir wheelhouse
