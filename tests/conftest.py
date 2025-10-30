@@ -9,9 +9,16 @@ import threading
 import types
 
 import pytest
+from pyfakefs import fake_filesystem_unittest
 from pyftpdlib.authorizers import DummyAuthorizer
 from pyftpdlib.handlers import FTPHandler
 from pyftpdlib.servers import ThreadedFTPServer
+
+
+@pytest.fixture
+def fs_no_root():
+    with fake_filesystem_unittest.Patcher(allow_root_user=False) as patcher:
+        yield patcher.fs
 
 
 @pytest.fixture

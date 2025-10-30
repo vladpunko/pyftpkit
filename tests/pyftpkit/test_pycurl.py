@@ -76,7 +76,7 @@ def test_ensure_ftp_url_no_port(host, connection_parameters):
     assert pycurl._ensure_ftp_url(url) == f"ftp://{host!s}/{url!s}"
 
 
-def test_download_no_permissions(caplog, fs, pycurl_instance):
+def test_download_no_permissions(caplog, fs_no_root, pycurl_instance):
     path = pathlib.Path("/test")
     path.mkdir()
     os.chmod(path, 0o000)
@@ -94,7 +94,7 @@ def test_download_no_permissions(caplog, fs, pycurl_instance):
 
 def test_download(
     caplog,
-    fs,
+    fs_no_root,
     pycurl_mock,
     host,
     port,
@@ -149,7 +149,9 @@ def test_download(
     pycurl_mock.return_value.close.assert_called_once()
 
 
-def test_download_with_error(caplog, fs, host, port, pycurl_instance, pycurl_mock):
+def test_download_with_error(
+    caplog, fs_no_root, host, port, pycurl_instance, pycurl_mock
+):
     src = "text.txt"
     dst = "text.txt"
 
@@ -167,7 +169,7 @@ def test_download_with_error(caplog, fs, host, port, pycurl_instance, pycurl_moc
     assert message in str(err.value)
 
 
-def test_download_with_fs_error(caplog, fs, pycurl_instance, pycurl_mock):
+def test_download_with_fs_error(caplog, fs_no_root, pycurl_instance, pycurl_mock):
     src = "/text.txt"
     dst = pathlib.Path("/test")
     dst.mkdir()
@@ -187,7 +189,7 @@ def test_download_with_fs_error(caplog, fs, pycurl_instance, pycurl_mock):
 
 def test_upload(
     caplog,
-    fs,
+    fs_no_root,
     pycurl_mock,
     host,
     port,
@@ -232,7 +234,9 @@ def test_upload(
     pycurl_mock.return_value.close.assert_called_once()
 
 
-def test_upload_with_error(caplog, fs, host, port, pycurl_instance, pycurl_mock):
+def test_upload_with_error(
+    caplog, fs_no_root, host, port, pycurl_instance, pycurl_mock
+):
     src = pathlib.Path("test.txt")
     src.write_text("")
     dst = "/"
@@ -251,7 +255,7 @@ def test_upload_with_error(caplog, fs, host, port, pycurl_instance, pycurl_mock)
     assert message in str(err.value)
 
 
-def test_upload_with_fs_error(caplog, fs, pycurl_mock, pycurl_instance):
+def test_upload_with_fs_error(caplog, fs_no_root, pycurl_mock, pycurl_instance):
     src = pathlib.Path("/test")
     src.mkdir()
     dst = "/"

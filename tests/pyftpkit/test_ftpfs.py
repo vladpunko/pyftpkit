@@ -73,7 +73,7 @@ def dirtree(ftp_server):
 
 
 @pytest.mark.asyncio
-async def test_listdir(fs, caplog, ftp_server, connection_parameters):
+async def test_listdir(fs_no_root, caplog, ftp_server, connection_parameters):
     dirs = []
     for _ in range(3):
         name = str(uuid.uuid4())
@@ -100,7 +100,9 @@ async def test_listdir(fs, caplog, ftp_server, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_listdir_with_error(fs, caplog, ftp_server, connection_parameters):
+async def test_listdir_with_error(
+    fs_no_root, caplog, ftp_server, connection_parameters
+):
     path = ftp_server.root / "not-found"
 
     async with FTPFileSystem(connection_parameters=connection_parameters) as ftpfs:
@@ -116,7 +118,7 @@ async def test_listdir_with_error(fs, caplog, ftp_server, connection_parameters)
 
 
 @pytest.mark.asyncio
-async def test_listdir_bad_entry(fs, mocker, ftp_server, connection_parameters):
+async def test_listdir_bad_entry(fs_no_root, mocker, ftp_server, connection_parameters):
     entries = [
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 dir",
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 text.txt",
@@ -142,7 +144,7 @@ async def test_listdir_bad_entry(fs, mocker, ftp_server, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_walk(fs, ftp_server, dirtree, connection_parameters):
+async def test_walk(fs_no_root, ftp_server, dirtree, connection_parameters):
     collected_dirs = []
     collected_nondirs = []
 
@@ -163,7 +165,7 @@ async def test_walk(fs, ftp_server, dirtree, connection_parameters):
 
 @pytest.mark.asyncio
 async def test_walk_no_permission(
-    fs, caplog, ftp_server, dirtree, connection_parameters
+    fs_no_root, caplog, ftp_server, dirtree, connection_parameters
 ):
     os.chmod(random.choice(dirtree.dirs), 0o000)
 
@@ -181,7 +183,9 @@ async def test_walk_no_permission(
 
 
 @pytest.mark.asyncio
-async def test_walk_drain_output_queue(fs, mocker, ftp_server, connection_parameters):
+async def test_walk_drain_output_queue(
+    fs_no_root, mocker, ftp_server, connection_parameters
+):
     dirpath = ftp_server.home / "test"
     dirpath.mkdir()
     path = dirpath / "text.txt"
@@ -222,7 +226,7 @@ async def test_walk_drain_output_queue(fs, mocker, ftp_server, connection_parame
 
 
 @pytest.mark.asyncio
-async def test_makedirs(fs, caplog, ftp_server, connection_parameters):
+async def test_makedirs(fs_no_root, caplog, ftp_server, connection_parameters):
     async with FTPFileSystem(connection_parameters=connection_parameters) as ftpfs:
         with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
             await ftpfs.makedirs("/1")
@@ -256,7 +260,7 @@ async def test_makedirs(fs, caplog, ftp_server, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_makedirs_no_permission(fs, caplog, ftp_server):
+async def test_makedirs_no_permission(fs_no_root, caplog, ftp_server):
     path = "/test"
 
     connection_parameters = ConnectionParameters.model_validate(
@@ -283,7 +287,7 @@ async def test_makedirs_no_permission(fs, caplog, ftp_server):
 
 
 @pytest.mark.asyncio
-async def test_rm(fs, caplog, ftp_server, connection_parameters):
+async def test_rm(fs_no_root, caplog, ftp_server, connection_parameters):
     path = ftp_server.home / "text.txt"
     path.write_text("")
 
@@ -302,7 +306,7 @@ async def test_rm(fs, caplog, ftp_server, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_rm_not_exists(fs, caplog, ftp_server, connection_parameters):
+async def test_rm_not_exists(fs_no_root, caplog, ftp_server, connection_parameters):
     path = "/test.txt"
 
     async with FTPFileSystem(connection_parameters=connection_parameters) as ftpfs:
@@ -318,7 +322,7 @@ async def test_rm_not_exists(fs, caplog, ftp_server, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_rmtree(fs, caplog, ftp_server, dirtree, connection_parameters):
+async def test_rmtree(fs_no_root, caplog, ftp_server, dirtree, connection_parameters):
     path = "/"
 
     async with FTPFileSystem(connection_parameters=connection_parameters) as ftpfs:
@@ -342,7 +346,7 @@ async def test_rmtree(fs, caplog, ftp_server, dirtree, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_rmtree_no_permission(fs, caplog, ftp_server):
+async def test_rmtree_no_permission(fs_no_root, caplog, ftp_server):
     path = ftp_server.home / "test"
     path.mkdir()
 
