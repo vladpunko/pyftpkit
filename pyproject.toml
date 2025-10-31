@@ -42,7 +42,7 @@ classifiers = [
 [project.scripts]
 pyftpkit = "pyftpkit.__main__:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "bandit>=1.8,<2.0",
   "black>=25.1,<26.0",
@@ -71,7 +71,11 @@ minimum-version = "build-system.requires"
 wheel.packages = [
   "src/pyftpkit",
 ]
-wheel.py-api = "py3"
+
+[tool.cibuildwheel]
+test-command = "python -m pytest"
+test-sources = ["tests"]
+test-groups = ["tests"]
 
 [tool.pytest.ini_options]
 addopts = [
