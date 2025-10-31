@@ -35,7 +35,6 @@ jobs:
             && sudo apt-get update --yes \
             && sudo apt-get install --yes --no-install-recommends \
               make \
-              repo \
             && sudo apt-get clean \
             && sudo rm --recursive --force /var/lib/apt/lists/*
 
@@ -44,7 +43,7 @@ jobs:
         run: |
           set -ex \
             && brew update \
-            && brew install make repo
+            && brew install make
 
       - name: Step -- 4.
         run: make bootstrap

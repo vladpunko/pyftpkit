@@ -35,7 +35,6 @@ jobs:
               libcurl4-openssl-dev \
               libssl-dev \
               make \
-              repo \
             && sudo apt-get clean \
             && sudo rm --recursive --force /var/lib/apt/lists/*
 
