@@ -2,8 +2,8 @@ name: build wheels
 
 on:
   push:
-    branches:
-      - "master"
+    tags:
+      - "*"
 
 jobs:
   build_wheels:

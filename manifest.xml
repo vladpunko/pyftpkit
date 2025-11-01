@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+    <remote name="oe" fetch="git://git.openembedded.org/"/>
+    <remote name="yocto" fetch="git://git.yoctoproject.org"/>
+
+    <project remote="oe" name="meta-openembedded" revision="scarthgap" path="docker/poky/meta-openembedded"/>
+    <project remote="yocto" name="poky" revision="scarthgap" path="docker/poky"/>
+</manifest>
