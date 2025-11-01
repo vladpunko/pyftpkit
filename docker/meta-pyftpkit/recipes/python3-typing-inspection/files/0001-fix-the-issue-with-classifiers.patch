@@ -1,0 +1,18 @@
+commit bce811dcb9bd33649a3f3f1d1c67c00e0e821ef2
+Author: Vladislav Punko <iam.vlad.punko@gmail.com>
+Date:   Sat Nov 1 17:42:50 2025 +0100
+
+    Fix the issue with classifiers
+
+diff --git a/pyproject.toml b/pyproject.toml
+index fde166f..8f4c711 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -21,7 +21,6 @@ classifiers = [
+     'Programming Language :: Python :: 3.11',
+     'Programming Language :: Python :: 3.12',
+     'Programming Language :: Python :: 3.13',
+-    'Programming Language :: Python :: 3.14',
+     'Typing :: Typed',
+     'License :: OSI Approved :: MIT License',
+     'Intended Audience :: Developers',

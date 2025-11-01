@@ -1,0 +1,19 @@
+commit 06e1b48defc3e927dbbad27a5c813dbf660583ec
+Author: Vladislav Punko <iam.vlad.punko@gmail.com>
+Date:   Sat Nov 1 21:22:47 2025 +0100
+
+    Use PYTHON_INCLUDE_DIR to find an interpreter and its headers
+
+diff --git a/src/scikit_build_core/builder/builder.py b/src/scikit_build_core/builder/builder.py
+index dde36dd..9b6042c 100644
+--- a/src/scikit_build_core/builder/builder.py
++++ b/src/scikit_build_core/builder/builder.py
+@@ -228,7 +228,7 @@ class Builder:
+         python_sabi_library = (
+             get_python_library(self.config.env, abi3=True) if limited_api else None
+         )
+-        python_include_dir = get_python_include_dir()
++        python_include_dir = os.environ.get("PYTHON_INCLUDE_DIR", get_python_include_dir())
+         numpy_include_dir = get_numpy_include_dir()
+
+         # Warning for CPython 3.13.4 Windows bug
