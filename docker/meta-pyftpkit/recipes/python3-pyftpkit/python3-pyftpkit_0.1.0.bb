@@ -32,3 +32,5 @@ export SKBUILD_CMAKE_EXECUTABLE = "${STAGING_BINDIR_NATIVE}/cmake"
 
 # Keep debug symbols intact so Yocto can perform its own stripping later.
 export SKBUILD_CMAKE_BUILD_TYPE="Debug"
+
+BBCLASSEXTEND += "native nativesdk"
