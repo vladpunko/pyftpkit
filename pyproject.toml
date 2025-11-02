@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "pyftpkit"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Asynchronous library for FTP-based file system operations"
 readme = "README.md"
 authors = [
@@ -71,6 +71,10 @@ minimum-version = "build-system.requires"
 wheel.packages = [
   "src/pyftpkit",
 ]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "src/pyftpkit/__init__.py"
 
 [tool.cibuildwheel]
 test-command = "python -m pytest"

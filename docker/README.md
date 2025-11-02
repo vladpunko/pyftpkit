@@ -55,3 +55,5 @@ docker import "$(find "./tmp/deploy/images/${MACHINE?err}" -name 'python3-image-
 # Step -- 3.
 docker run --rm "python3-pyftpkit:3-12-${MACHINE:?err}" python3 -c 'print(__import__("sys").executable)'
 ```
+
+To maintain architecture compatibility when using `docker import`, include the `--platform` flag **only** if the image was built for a different architecture than your host system. By default, Docker imports images for [the daemon's native platform](https://docs.docker.com/reference/cli/docker/image/import/#platform). To avoid runtime issues across different CPU architectures, specify the platform explicitly -- use `--platform=linux/arm64` for ARM targets or `--platform=linux/amd64` for x86 systems.

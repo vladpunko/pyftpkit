@@ -380,3 +380,18 @@ async def test_upload_target_path_is_directory_with_error(
 
     message = f"Upload failed due to invalid destination path: {path!s}"
     assert message in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_upload_no_data_to_upload(
+    caplog, tmp_path, ftp_server, connection_parameters
+):
+    src = []
+    dst = "/"
+
+    loader = FTPLoader(connections_parameters=connection_parameters)
+    with caplog.at_level(logging.WARNING):
+        await loader.upload(src, dst)
+
+    message = "No data to upload."
+    assert message in caplog.text

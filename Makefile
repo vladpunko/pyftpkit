@@ -11,6 +11,7 @@ help:
 	@echo 'help         - show help'
 	@echo 'build        - build project packages'
 	@echo 'install      - install the built wheel package'
+	@echo 'containers   - build docker images on the current machine'
 	@echo 'hooks        - install all git hooks'
 	@echo 'tests        - run project tests'
 	@echo 'lint         - inspect project source code for problems and errors'
@@ -29,6 +30,10 @@ build: venv
 
 install: build
 	@$(PYTHON) -m pip install --force-reinstall dist/*.whl
+
+.PHONY: containers
+containers:
+	@env TAG=$(shell python -c 'print(__import__("pyftpkit").__version__)') docker buildx bake
 
 hooks: venv
 	@$(PYTHON) -m pre_commit install --config .githooks.yml

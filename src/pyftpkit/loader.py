@@ -201,6 +201,11 @@ class FTPLoader:
         if isinstance(dst, (str, pathlib.Path)):
             dst = pathlib.Path(dst)
 
+            if not sources:
+                logger.warning("No data to upload.")
+
+                return None
+
             commonpath = pathlib.Path(os.path.commonpath(sources))
 
             dst = [
