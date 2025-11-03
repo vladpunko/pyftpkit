@@ -31,7 +31,7 @@ jobs:
       - name: Step -- 3.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install cibuildwheel wheel
+          python -m pip install cibuildwheel
 
       - name: Step -- 4.
         env:
@@ -41,3 +41,17 @@ jobs:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
         run: |
           python -m cibuildwheel --output-dir wheelhouse
+
+      - name: Step -- 5.
+        uses: actions/upload-artifact@v5
+        with:
+          name: wheels-${{ matrix.name }}
+          path: ./wheelhouse/*.whl
+
+      - name: Step -- 6.
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine upload --skip-existing ./wheelhouse/*.whl
+        env:
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_USERNAME: __token__

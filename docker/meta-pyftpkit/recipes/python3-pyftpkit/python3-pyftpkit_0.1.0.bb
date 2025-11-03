@@ -8,7 +8,7 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=f2b48c6b5565659a3aed6766c79e9a76"
 
 SRC_URI = "git://github.com/vladpunko/pyftpkit.git;branch=master;protocol=https"
-SRCREV="722e5b2dd81db78f253bf93ccd999428d89cb780"
+SRCREV="f861b675af6c2a58b6d3fe49614a2f1a9f1d46c3"
 S = "${WORKDIR}/git"
 
 DEPENDS = "\

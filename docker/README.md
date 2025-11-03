@@ -50,7 +50,7 @@ Next, build the base image by running the following commands in order:
 bitbake python3-pyftpkit-image
 
 # Step -- 2.
-docker import "$(find "./tmp/deploy/images/${MACHINE?err}" -name 'python3-image-*.tar.bz2' | head -n 1)" "python3-pyftpkit:3-12-${MACHINE:?err}"
+docker import "$(find "./tmp/deploy/images/${MACHINE:?err}" -name 'python3-image-*.tar.bz2' | head -n 1)" "python3-pyftpkit:3-12-${MACHINE:?err}"
 
 # Step -- 3.
 docker run --rm "python3-pyftpkit:3-12-${MACHINE:?err}" python3 -c 'print(__import__("sys").executable)'
