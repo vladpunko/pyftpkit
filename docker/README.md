@@ -22,9 +22,9 @@ source ./oe-init-build-env
 bitbake-layers -h  # to validate
 
 # Step -- 3.
-bitbake-layer add-layer ../meta-openembedded/meta-oe
-bitbake-layer add-layer ../meta-openembedded/meta-python
-bitbake-layer add-layer ../../meta-pyftpkit
+bitbake-layers add-layer ../meta-openembedded/meta-oe
+bitbake-layers add-layer ../meta-openembedded/meta-python
+bitbake-layers add-layer ../../meta-pyftpkit
 ```
 
 Open the `conf/local.conf` file in your preferred editor and locate the relevant configuration line. Modify it to set your preferred target architecture.
