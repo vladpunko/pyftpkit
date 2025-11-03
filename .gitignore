@@ -13,6 +13,7 @@ __pycache__/
 assets/
 build/
 dist/
+docker/poky/
 docs/_build
 downloads/
 eggs/
