@@ -15,10 +15,17 @@ import sys
 import typing
 from importlib import metadata
 
-import pydantic
+import dotenv
 
-from pyftpkit.connection_parameters import ConnectionParameters
-from pyftpkit.loader import FTPLoader
+# This must occur before importing any package components that depend
+# on environment-based settings.
+dotenv.load_dotenv(".env")
+
+import pydantic  # noqa: E402
+
+from pyftpkit import logger_wrapper  # noqa: E402
+from pyftpkit.connection_parameters import ConnectionParameters  # noqa: E402
+from pyftpkit.loader import FTPLoader  # noqa: E402
 
 logger = logging.getLogger("pyftpkit")
 
@@ -49,6 +56,55 @@ async def _main() -> None:
     )
     parser.add_argument(
         "-v", "--version", action="version", version=metadata.version("pyftpkit")
+    )
+    parser.add_argument(
+        "-H",
+        "--host",
+        type=str,
+        metavar="HOST",
+        help="FTP server hostname or IP address to connect to",
+    )
+    parser.add_argument(
+        "-P",
+        "--port",
+        type=int,
+        metavar="PORT",
+        help="FTP server port number",
+    )
+    parser.add_argument(
+        "-u",
+        "--username",
+        type=str,
+        metavar="USERNAME",
+        help="username for FTP authentication",
+    )
+    parser.add_argument(
+        "-p",
+        "--password",
+        type=str,
+        metavar="PASSWORD",
+        help="password for FTP authentication",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        metavar="SECONDS",
+        help="connection timeout in seconds",
+    )
+    parser.add_argument(
+        "--max-connections",
+        type=int,
+        metavar="N",
+        help="maximum number of simultaneous FTP connections",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
+        metavar="N",
+        help=(
+            "maximum number of worker threads for parallel operations"
+            "\n(threads per connection)"
+        ),
     )
 
     subparsers = parser.add_subparsers(dest="cmd", required=True)
@@ -101,10 +157,13 @@ async def _main() -> None:
         help="remote destination path(s) on the FTP server",
     )
 
+    logger_wrapper.setup()
     try:
         arguments = parser.parse_args()
 
-        ftp_loader = FTPLoader(connections_parameters=ConnectionParameters())
+        ftp_loader = FTPLoader(
+            connections_parameters=ConnectionParameters.from_arguments(arguments)
+        )
         match FTPCommand(arguments.cmd):
             case FTPCommand.DOWNLOAD:
                 await ftp_loader.download(arguments.src, arguments.dst)
@@ -112,10 +171,10 @@ async def _main() -> None:
             case FTPCommand.UPLOAD:
                 await ftp_loader.upload(arguments.src, arguments.dst)
     except pydantic.ValidationError as err:
-        logger.error("Failed to load configuration.")
+        logger.error("Failed to load and set configuration.")
         logger.error(err)
         logger.warning(
-            "Environment variables are likely not set or not loaded from the file."
+            "Configuration parameters may be unset, improperly loaded, or invalid."
         )
 
         sys.exit(os.EX_CONFIG)

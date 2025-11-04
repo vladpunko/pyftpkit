@@ -36,3 +36,28 @@
 ### Fixed
 
 - No bug fixes in this release.
+
+---
+
+## [Version: 0.1.1] - 2025-11-04
+
+### Added
+
+- Add the ability to pass connection parameters via CLI:
+    * `--host`
+    * `--port`
+    * `--username`
+    * `--password`
+    * `--timeout`
+    * `--max-connections`
+    * `--max-workers`
+- CLI arguments now override corresponding `.env` or environment variable settings.
+
+### Changed
+
+- The CLI loads environment variables from the `.env` file automatically at startup.
+
+### Fixed
+
+- Resolved a problem preventing logger and log interval environment variables from taking effect in CLI runs.
+- Fixed the issue that allowed negative values for port, maximum connections, or maximum workers.
