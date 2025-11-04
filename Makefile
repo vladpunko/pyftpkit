@@ -33,7 +33,7 @@ install: build
 
 .PHONY: containers
 containers:
-	@env TAG=$(shell python -c 'print(__import__("pyftpkit").__version__)') docker buildx bake
+	@env TAG=$(shell $(PYTHON) -c 'print(__import__("pyftpkit").__version__)') docker buildx bake
 
 hooks: venv
 	@$(PYTHON) -m pre_commit install --config .githooks.yml
