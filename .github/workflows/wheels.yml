@@ -45,7 +45,7 @@ jobs:
       - name: Step -- 5.
         uses: actions/upload-artifact@v5
         with:
-          name: wheels-${{ matrix.name }}
+          name: wheels-${{ matrix.os }}-${{ matrix.arch }}
           path: ./wheelhouse/*.whl
 
       - name: Step -- 6.
