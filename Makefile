@@ -31,8 +31,7 @@ build: venv
 install: build
 	@$(PYTHON) -m pip install --force-reinstall dist/*.whl
 
-.PHONY: containers
-containers:
+containers: venv
 	@env TAG=$(shell $(PYTHON) -c 'print(__import__("pyftpkit").__version__)') docker buildx bake
 
 hooks: venv
