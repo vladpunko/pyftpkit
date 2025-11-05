@@ -31,8 +31,12 @@ build: venv
 install: build
 	@$(PYTHON) -m pip install --force-reinstall dist/*.whl
 
+containers: IMAGE_TAG=$(shell $(PYTHON) -c 'print(__import__("pyftpkit").__version__)')
 containers: venv
-	@env TAG=$(shell $(PYTHON) -c 'print(__import__("pyftpkit").__version__)') docker buildx bake
+	@docker buildx bake
+	@docker manifest create docker.io/vladpunko/pyftpkit:$(IMAGE_TAG) \
+		--amend docker.io/vladpunko/pyftpkit:$(IMAGE_TAG)-amd64 \
+		--amend docker.io/vladpunko/pyftpkit:$(IMAGE_TAG)-arm64
 
 hooks: venv
 	@$(PYTHON) -m pre_commit install --config .githooks.yml

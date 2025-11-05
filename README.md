@@ -52,18 +52,17 @@ Here is a simple example demonstrating how to upload and download data to and fr
 
 ```bash
 # The library provides two main commands -- one for uploading and one for downloading data.
-# Since both share the same interface, you can switch between them simply by changing
-# the command name in the command-line interface.
+# It is recommended to create a local wrapper script to simplify running this command.
 docker run \
     --interactive \
-    --network host \
+    --network=host \
     --rm \
     --tty \
-    --user "$(id -u):$(id -g)" \  # to avoid permission issues on mounted volumes
-    --volume "$(pwd):$(pwd)" \
-    --volume /tmp:/tmp \  # this is for the logging system
-    --workdir "$(pwd)" \
-"docker.io/vladpunko/pyftpkit:${IMAGE_TAG:?err}" upload --src ./examples/* --dst '/'
+    --user="$(id -u):$(id -g)" \  # to avoid permission issues on mounted volumes
+    --volume="$(pwd):$(pwd)" \
+    --volume=/tmp:/tmp \  # this is for the logging system
+    --workdir="$(pwd)" \
+"docker.io/vladpunko/pyftpkit:${IMAGE_TAG:?err}" "$@"
 ```
 
 To simplify configuration, the library automatically loads FTP server settings from a [.env](https://raw.githubusercontent.com/vladpunko/pyftpkit/refs/heads/master/examples/.env) file located in the current working directory.
