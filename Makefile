@@ -23,8 +23,8 @@ help:
 venv: $(VENV_DIR)/bin/activate
 $(VENV_DIR)/bin/activate:
 	@python3 -m venv $(VENV_DIR)
-	@$(PIP) install --upgrade pip setuptools wheel
-	@$(PIP) install --group dev --group tests .
+	@$(PIP) install --upgrade pip setuptools uv wheel
+	@$(PYTHON) -m uv sync --group dev --group tests
 	@touch $(VENV_DIR)/bin/activate
 
 build: venv
