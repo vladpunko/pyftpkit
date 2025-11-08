@@ -55,7 +55,7 @@ dev = [
   "twine>=6.1,<7.0",
 ]
 tests = [
-  "coverage>=7.6,<8.0",
+  "coverage>=7.6,<7.11",
   "pyfakefs>=5.7,<6.0",
   "pyftpdlib>=2.0,<3",
   "pytest-asyncio>=1.1,<2",
