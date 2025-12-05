@@ -199,7 +199,7 @@ class FTPLoader:
 
         # Build list of target paths.
         if isinstance(dst, (str, pathlib.Path)):
-            dst = pathlib.Path(dst)
+            dst = pathlib.Path("/") / dst
 
             if not sources:
                 logger.warning("No data to upload.")
@@ -228,6 +228,9 @@ class FTPLoader:
                 raise RuntimeError(
                     f"Upload failed due to invalid destination path: {path!s}"
                 )
+
+            # All paths within the list should start from the root of the FTP server.
+            dst = [os.path.join("/", path) for path in dst]
 
         async with FTPFileSystem(
             connection_parameters=self._connections_parameters,
