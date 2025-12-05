@@ -4,6 +4,6 @@
 
 from pyftpkit import logger_wrapper
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 logger_wrapper.setup()

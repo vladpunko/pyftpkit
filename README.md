@@ -38,6 +38,8 @@ python3 -m pip install --user pyftpkit
 
 ## Basic usage
 
+> WARNING: It is important to note that paths on an FTP server have to be absolute and start from the root. Additionally, when specifying a directory path, include a trailing `/` to clearly distinguish it from a file path.
+
 Here is a list of examples demonstrating the library's usage across various covered scenarios:
 
 * [download](https://raw.githubusercontent.com/vladpunko/pyftpkit/refs/heads/master/examples/download.py)
@@ -66,6 +68,31 @@ docker run \
 ```
 
 To simplify configuration, the library automatically loads FTP server settings from a [.env](https://raw.githubusercontent.com/vladpunko/pyftpkit/refs/heads/master/examples/.env) file located in the current working directory.
+
+Below are sample CLI usage scenarios, assuming a `.env` file is already present and may supply part or all of the configuration parameters:
+
+```bash
+# Upload one file to the target FTP directory without altering its filename.
+# Update the host and port using the values provided during transfer, replacing
+# any previously loaded settings from the file.
+# If the destination directory is missing, create it before uploading.
+pyftpkit -H 0.0.0.0 -P 2222 upload --src 1.txt --dst '/1.txt'
+
+# Upload a batch of files to the specified directory without modifying their filenames.
+# Use the configuration settings defined in the file.
+# If the destination directory is not present, create it before uploading.
+pyftpkit upload --src 1.txt 2.txt 3.txt --dst '/documents/'
+
+# Download all content from the FTP server into the designated local folder while
+# preserving the full directory structure.
+# Apply the host, port, and credentials values provided through the CLI, replacing any
+# corresponding settings previously loaded from the file.
+pyftpkit -H 0.0.0.0 -P 2222 -u admin -p admin download --src '/' --dst ./data/
+
+# Download a selected group of files as a batch, applying new filenames during retrieval.
+# Use the FTP connection settings defined in the configuration file.
+pyftpkit download --src 1.txt 2.txt --dst passwords.txt data.txt
+```
 
 ## Contributing
 

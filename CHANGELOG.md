@@ -61,3 +61,20 @@
 
 - Resolved a problem preventing logger and log interval environment variables from taking effect in CLI runs.
 - Fixed the issue that allowed negative values for port, maximum connections, or maximum workers.
+
+---
+
+## [Version: 0.1.2] - 2025-12-05
+
+### Added
+
+- There are no new features in this version.
+
+### Changed
+
+- No changes in this release.
+
+### Fixed
+
+- Fixed the issue for CLI that prevented downloading or uploading without a `.env` file in the working directory.
+- Fixed the issue where the path for uploading files to an FTP server could start from a location other than root.
