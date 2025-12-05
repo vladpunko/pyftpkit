@@ -51,8 +51,6 @@ class ConnectionParameters(pydantic_settings.BaseSettings):
     def from_arguments(
         cls: type["ConnectionParameters"], arguments: argparse.Namespace
     ) -> "ConnectionParameters":
-        settings = cls()
-
         overrides: typing.DefaultDict[str, typing.Any] = collections.defaultdict(dict)
         for key, value in vars(arguments).items():
             if value is None:
@@ -68,4 +66,4 @@ class ConnectionParameters(pydantic_settings.BaseSettings):
                 case _:
                     continue
 
-        return cls.model_validate(settings.model_dump() | overrides)
+        return cls(**overrides)
