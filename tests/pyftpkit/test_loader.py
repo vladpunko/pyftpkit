@@ -248,7 +248,7 @@ async def test_upload_file_to_file(tmp_path, ftp_server, connection_parameters):
     content = "test"
     src = tmp_path / "1.txt"
     src.write_text(content)
-    dst = "test/1.txt"
+    dst = "/test/1.txt"
 
     loader = FTPLoader(connections_parameters=connection_parameters)
     await loader.upload(src, dst)
