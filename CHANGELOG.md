@@ -78,3 +78,15 @@
 
 - Fixed the issue for CLI that prevented downloading or uploading without a `.env` file in the working directory.
 - Fixed the issue where the path for uploading files to an FTP server could start from a location other than root.
+
+---
+
+## [Version: 0.1.3] - 2026-02-12
+
+### Added
+
+### Changed
+
+- The PyCURL library version has been updated to fix vulnerabilities. Thanks to [Georgios Alexopoulos](mailto:grgalex42@gmail.com) for that.
+
+### Fixed

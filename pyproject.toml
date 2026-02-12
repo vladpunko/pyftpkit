@@ -13,9 +13,10 @@ authors = [
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
-  "pycurl>=7.45.2,<8",
+  "pycurl>7.45.4,<8",
   "pydantic>=2.7,<3",
-  "pydantic_settings>=2.10,<3",
+  "pydantic-settings>=2.10,<3",
+  "python-dotenv>=1.2,<2",
 ]
 classifiers = [
   "Intended Audience :: Developers",
