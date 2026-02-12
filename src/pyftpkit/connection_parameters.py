@@ -2,12 +2,7 @@
 
 # Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
-import argparse
-import collections
-import typing
-
 import pydantic
-import pydantic_settings
 
 __all__ = ["Credentials", "ConnectionParameters"]
 
@@ -19,16 +14,8 @@ class Credentials(pydantic.BaseModel):
     password: pydantic.SecretStr
 
 
-class ConnectionParameters(pydantic_settings.BaseSettings):
+class ConnectionParameters(pydantic.BaseModel):
     """Connection parameters for establishing and managing FTP connections."""
-
-    model_config = pydantic_settings.SettingsConfigDict(
-        env_file_encoding="utf-8",
-        env_file=".env",
-        env_nested_delimiter="__",
-        env_prefix="PYFTPKIT_",
-        extra="ignore",
-    )
 
     host: str
     port: pydantic.NonNegativeInt = pydantic.Field(0, gt=0)  # no ports
@@ -46,24 +33,3 @@ class ConnectionParameters(pydantic_settings.BaseSettings):
         default_factory=dict,
         description="optional dictionary of additional cURL configuration options",
     )
-
-    @classmethod
-    def from_arguments(
-        cls: type["ConnectionParameters"], arguments: argparse.Namespace
-    ) -> "ConnectionParameters":
-        overrides: typing.DefaultDict[str, typing.Any] = collections.defaultdict(dict)
-        for key, value in vars(arguments).items():
-            if value is None:
-                continue
-
-            match key:
-                case "host" | "port" | "timeout" | "max_connections" | "max_workers":
-                    overrides[key] = value
-
-                case "username" | "password":
-                    overrides["credentials"][key] = value
-
-                case _:
-                    continue
-
-        return cls(**overrides)

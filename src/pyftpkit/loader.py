@@ -11,7 +11,7 @@ import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from pyftpkit._pycurl import PycURL
-from pyftpkit.connection_parameters import ConnectionParameters
+from pyftpkit.config import Config
 from pyftpkit.ftpfs import FTPFileSystem
 
 __all__ = ["FTPLoader"]
@@ -39,41 +39,16 @@ class FTPLoader:
     concurrency and periodic progress logging.
     """
 
-    DEFAULT_LOGGER_INTERVAL: typing.Final[int] = int(
-        os.environ.get("PYFTPKIT_LOGGER_INTERVAL", 10)
-    )
-
-    def __init__(
-        self,
-        connections_parameters: ConnectionParameters,
-        *,
-        log_interval: int = DEFAULT_LOGGER_INTERVAL,
-    ) -> None:
-        self._connections_parameters = connections_parameters
-
-        # Interval for logging progress during transfers.
-        self._log_interval = log_interval
+    def __init__(self, config: Config) -> None:
+        self._config = config
 
         # Thread pool executor shared across all related classes to ensure a single
         # pool of threads is used and prevent unexpected resource leaks.
         self._executor = ThreadPoolExecutor(
-            max_workers=self._connections_parameters.max_workers
+            max_workers=self._config.connection_parameters.max_workers
         )
 
-        self._pycurl = PycURL(connection_parameters=self._connections_parameters)
-
-    @property
-    def log_interval(self) -> int:
-        """Returns the current logging interval for upload progress."""
-        return self._log_interval
-
-    @log_interval.setter
-    def log_interval(self, value: typing.Any) -> None:
-        """Sets the logging interval."""
-        if not isinstance(value, int) or value <= 0:
-            raise ValueError("Logging interval must be a positive integer.")
-
-        self._log_interval = value
+        self._pycurl = PycURL(connection_parameters=self._config.connection_parameters)
 
     @functools.singledispatchmethod
     async def download(
@@ -118,7 +93,7 @@ class FTPLoader:
             await future
             index += 1
 
-            if index % self._log_interval == 0:
+            if index % self._config.logger_interval == 0:
                 logger.info("Downloaded: %d / %d", index, len(src))
 
         logger.info("All downloads finished: %d / %d", len(src), len(dst))
@@ -158,7 +133,7 @@ class FTPLoader:
 
             case (True, True):  # directory to directory
                 async with FTPFileSystem(
-                    connection_parameters=self._connections_parameters,
+                    connection_parameters=self._config.connection_parameters,
                     executor=self._executor,
                 ) as ftpfs:
                     paths: list[tuple[pathlib.Path, str]] = []
@@ -230,7 +205,7 @@ class FTPLoader:
                 )
 
         async with FTPFileSystem(
-            connection_parameters=self._connections_parameters,
+            connection_parameters=self._config.connection_parameters,
             executor=self._executor,
         ) as ftpfs:
             # Tests indicate that building the directory hierarchy before upload leads
@@ -248,7 +223,7 @@ class FTPLoader:
             await future
             index += 1
 
-            if index % self._log_interval == 0:
+            if index % self._config.logger_interval == 0:
                 logger.info("Uploaded: %d / %d", index, len(sources))
 
         logger.info("All uploads finished: %d / %d", len(sources), len(dst))

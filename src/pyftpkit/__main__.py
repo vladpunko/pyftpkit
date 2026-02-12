@@ -10,29 +10,25 @@ import enum
 import errno
 import logging
 import os
-import pathlib
 import sys
 import typing
 from importlib import metadata
 
 import dotenv
+import pydantic
 
-# This must occur before importing any package components that depend
-# on environment-based settings.
-dotenv.load_dotenv(".env")
-
-import pydantic  # noqa: E402
-
-from pyftpkit import logger_wrapper  # noqa: E402
-from pyftpkit.connection_parameters import ConnectionParameters  # noqa: E402
-from pyftpkit.loader import FTPLoader  # noqa: E402
+from pyftpkit import logger_wrapper
+from pyftpkit.config import Config
+from pyftpkit.ftpfs import FTPFileSystem
+from pyftpkit.loader import FTPLoader
 
 logger = logging.getLogger("pyftpkit")
 
 
 class FTPCommand(enum.Enum):
-    DOWNLOAD = "download"
-    UPLOAD = "upload"
+    DOWNLOAD = "DOWNLOAD"
+    UPLOAD = "UPLOAD"
+    LIST = "LIST"
 
 
 class SingleOrList(argparse.Action):
@@ -49,7 +45,31 @@ class SingleOrList(argparse.Action):
         setattr(namespace, self.dest, first if not other else values)
 
 
-async def _main() -> None:
+class ArgumentsNamespace(argparse.Namespace):
+    """Typed namespace representing all supported CLI parameters."""
+
+    host: str | None
+    port: int | None
+    username: str | None
+    password: str | None
+    timeout: int | None
+    max_connections: int | None
+    max_workers: int | None
+
+    logger_level: str
+    logger_interval: int | None
+
+    # This argument is required to allow overriding the file from which
+    # environment variables are loaded.
+    dotenv_path: str | None
+
+    cmd: FTPCommand
+    src: str | list[str] | None
+    dst: str | list[str] | None
+    recursive: bool
+
+
+def parse_arguments() -> ArgumentsNamespace:
     """The command-line interface."""
     parser = argparse.ArgumentParser(
         description="A command-line tool for FTP file transfers and management."
@@ -106,26 +126,54 @@ async def _main() -> None:
             "\n(threads per connection)"
         ),
     )
+    parser.add_argument(
+        "--logger-level",
+        type=str.upper,
+        metavar="LEVEL",
+        choices=[
+            "CRITICAL",
+            "ERROR",
+            "WARNING",
+            "INFO",
+            "DEBUG",
+            "NOTSET",
+        ],
+        default="INFO",
+        help="choose the logging level that controls message visibility",
+    )
+    parser.add_argument(
+        "--logger-interval",
+        type=int,
+        metavar="NUMBER",
+        help="interval for logging progress during transfers",
+    )
+    parser.add_argument(
+        "--dotenv-path",
+        type=str,
+        metavar="PATH",
+        default=None,
+        help="path to the file with environment variables for configuration",
+    )
 
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
-    download_parser = subparsers.add_parser(
-        FTPCommand.DOWNLOAD.value, help="Download files or directories."
+    subparser = subparsers.add_parser(
+        FTPCommand.DOWNLOAD.value.lower(), help="Download files or directories."
     )
-    download_parser.add_argument(
+    subparser.add_argument(
         "-s",
         "--src",
-        type=pathlib.Path,
+        type=str,
         required=True,
         nargs="+",
         metavar="SRC",
         action=SingleOrList,
         help="remote file(s) or directory(ies) on the FTP server to download",
     )
-    download_parser.add_argument(
+    subparser.add_argument(
         "-d",
         "--dst",
-        type=pathlib.Path,
+        type=str,
         required=True,
         nargs="+",
         metavar="DST",
@@ -133,23 +181,23 @@ async def _main() -> None:
         help="local destination path(s) where the files or directories will be saved",
     )
 
-    upload_parser = subparsers.add_parser(
-        FTPCommand.UPLOAD.value, help="Upload local files or directories."
+    subparser = subparsers.add_parser(
+        FTPCommand.UPLOAD.value.lower(), help="Upload local files or directories."
     )
-    upload_parser.add_argument(
+    subparser.add_argument(
         "-s",
         "--src",
-        type=pathlib.Path,
+        type=str,
         required=True,
         nargs="+",
         metavar="SRC",
         action=SingleOrList,
         help="local file(s) or directory(ies) to upload to the FTP server",
     )
-    upload_parser.add_argument(
+    subparser.add_argument(
         "-d",
         "--dst",
-        type=pathlib.Path,
+        type=str,
         required=True,
         nargs="+",
         metavar="DST",
@@ -157,19 +205,62 @@ async def _main() -> None:
         help="remote destination path(s) on the FTP server",
     )
 
-    logger_wrapper.setup()
-    try:
-        arguments = parser.parse_args()
+    subparser = subparsers.add_parser(
+        FTPCommand.LIST.value.lower(), help="List files on the remote FTP server."
+    )
+    subparser.add_argument(
+        "-R",
+        "--recursive",
+        action="store_true",
+        help="walk through subdirectories and display their contents",
+    )
+    subparser.add_argument(
+        "src",
+        type=str,
+        metavar="SRC",
+        help="remote directory path to list",
+    )
 
-        ftp_loader = FTPLoader(
-            connections_parameters=ConnectionParameters.from_arguments(arguments)
-        )
+    return parser.parse_args(namespace=ArgumentsNamespace())
+
+
+async def run() -> None:  # noqa: C901
+    """Main asynchronous entry point of the application."""
+    try:
+        arguments = parse_arguments()
+
+        # Assign a new severity level to the logging system.
+        logger_wrapper.setup(arguments.logger_level)
+
+        dotenv.load_dotenv(arguments.dotenv_path)
+        config = Config.from_arguments(vars(arguments))
+
         match FTPCommand(arguments.cmd):
             case FTPCommand.DOWNLOAD:
-                await ftp_loader.download(arguments.src, arguments.dst)
+                await FTPLoader(config=config).download(arguments.src, arguments.dst)
 
             case FTPCommand.UPLOAD:
-                await ftp_loader.upload(arguments.src, arguments.dst)
+                await FTPLoader(config=config).upload(arguments.src, arguments.dst)
+
+            case FTPCommand.LIST:
+                async with FTPFileSystem(
+                    connection_parameters=config.connection_parameters
+                ) as ftpfs:
+                    # The argument parser for the listing command returns only one path
+                    # as a string and no options for static verification.
+                    src: str = typing.cast(str, arguments.src)
+
+                    if arguments.recursive:
+                        async for _, _, nondirs in ftpfs.walk(src):
+                            for path in nondirs:
+                                print(path)
+                    else:
+                        _, nondirs = await ftpfs.listdir(src)
+                        if not nondirs:
+                            logger.warning("There are no files in the provided path.")
+
+                        for path in nondirs:
+                            print(path)
     except pydantic.ValidationError as err:
         logger.error("Failed to load and set configuration.")
         logger.error(err)
@@ -194,7 +285,7 @@ async def _main() -> None:
 
 def main() -> None:
     """This function is only necessary for creating an entry point script."""
-    asyncio.run(_main())
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

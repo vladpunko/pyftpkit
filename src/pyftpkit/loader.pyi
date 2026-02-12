@@ -5,19 +5,12 @@
 import pathlib
 import typing
 
-from pyftpkit.connection_parameters import ConnectionParameters
+from pyftpkit.config import Config
 
 __all__: list[str] = ["FTPLoader"]
 
 class FTPLoader:
-    DEFAULT_LOGGING_INTERVAL: typing.Final[int]
-    def __init__(
-        self, connections_parameters: ConnectionParameters, *, log_interval: int = ...
-    ) -> None: ...
-    @property
-    def log_interval(self) -> int: ...
-    @log_interval.setter
-    def log_interval(self, value: typing.Any) -> None: ...
+    def __init__(self, config: Config) -> None: ...
     @typing.overload
     async def download(
         self,
