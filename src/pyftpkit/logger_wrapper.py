@@ -13,7 +13,7 @@ __all__ = ["setup"]
 
 
 def setup(level: str = "INFO", path: str | pathlib.Path | None = None) -> None:
-    """Sets up the logging system for the packagae."""
+    """Sets up the logging system for the package."""
     logging.config.dictConfig(
         {
             "disable_existing_loggers": False,
