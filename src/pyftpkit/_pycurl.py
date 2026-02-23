@@ -2,10 +2,11 @@
 
 # Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
+import contextlib
 import io
 import logging
 import os
-import pathlib
+import queue
 import typing
 import urllib.parse
 
@@ -14,7 +15,7 @@ import pycurl
 from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.exceptions import FTPError
 
-__all__ = ["PycURL"]
+__all__ = ["PycURL", "PycURLPoolManager"]
 
 logger = logging.getLogger("pyftpkit")
 
@@ -25,12 +26,32 @@ class PycURL:
     def __init__(self, connection_parameters: ConnectionParameters) -> None:
         self._connection_parameters = connection_parameters
 
-    def _ensure_ftp_url(self, path: str | pathlib.Path) -> str:
+        # Initialize a single cURL instance to retain connection state.
+        # This allows efficient reuse of existing network sessions
+        # instead of establishing a new connection per request.
+        self._curl = pycurl.Curl()
+        self._curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
+        self._curl.setopt(
+            pycurl.USERPWD,
+            "{0!s}:{1!s}".format(
+                self._connection_parameters.credentials.username,
+                self._connection_parameters.credentials.password.get_secret_value(),
+            ),
+        )
+        self._curl.setopt(pycurl.FORBID_REUSE, 0)  # keep connection in cache for reuse
+        self._curl.setopt(pycurl.FTP_FILEMETHOD, pycurl.FTPMETHOD_NOCWD)
+        self._curl.setopt(pycurl.FTP_USE_EPSV, 1)
+        self._curl.setopt(pycurl.NOSIGNAL, 1)  # important for multi-threading
+        self._curl.setopt(pycurl.BUFFERSIZE, io.DEFAULT_BUFFER_SIZE)
+        for option, value in self._connection_parameters.extra_options.items():
+            self._curl.setopt(option, value)
+
+    def _ensure_ftp_url(self, path: str) -> str:
         """Ensures a proper FTP URL for the given path using the connection parameters.
 
         Parameters
         ----------
-        path : str or pathlib.Path
+        path : str
             The FTP path to normalize and convert into a URL.
 
         Returns
@@ -38,8 +59,6 @@ class PycURL:
         str
             A fully-qualified FTP URL.
         """
-        path = str(path)
-
         if path.startswith("ftp://"):
             return path
 
@@ -52,17 +71,21 @@ class PycURL:
 
         return urllib.parse.urlunparse(("ftp", netloc, normpath, "", "", ""))
 
-    def download(self, src: str | pathlib.Path, dst: str | pathlib.Path) -> float:
+    def close(self) -> None:
+        """Releases all resources."""
+        self._curl.close()
+
+    def download(self, src: str, dst: str) -> float:
         """Fetches a remote file and writes it to the local filesystem.
 
         Adds the FTP protocol prefix to the source path if missing.
 
         Parameters
         ----------
-        src : str or pathlib.Path
+        src : str
             The FTP path to the remote file to be downloaded.
 
-        dst : str or pathlib.Path
+        dst : str
             The local filesystem path where the file will be saved.
 
         Returns
@@ -72,13 +95,54 @@ class PycURL:
 
         Raises
         ------
+        TypeError
+            If either the source or destination path is not a string.
+
+        ValueError
+            If the source or destination path is empty or contains only whitespace.
+
         RuntimeError
-            If the destination directory cannot be created or written to.
+            If the source path is ambiguous (not absolute) or
+            if the destination directory cannot be created or written to.
 
         FTPError
             If any network or FTP-related issue occurs during download.
         """
-        if dirname := os.path.dirname(os.path.expanduser(dst)):
+        if not isinstance(src, str) or not isinstance(dst, str):
+            logger.error("The source and destination paths must both be strings.")
+            raise TypeError(
+                "Source and destination paths are required to be strings."
+                "\nSource {0!r} has type: {1!s}"
+                "\nDestination {2!r} has type: {3!s}".format(
+                    src,
+                    type(src).__name__,
+                    dst,
+                    type(dst).__name__,
+                )
+            )
+
+        if not src or not src.strip():
+            logger.error("The source path cannot be empty or whitespace.")
+            raise ValueError(
+                "The source path must not be empty or consist only of whitespace."
+            )
+
+        if not dst or not dst.strip():
+            logger.error("The destination path cannot be empty or whitespace.")
+            raise ValueError(
+                "The destination path must not be empty or consist only of whitespace."
+            )
+
+        if not src.startswith("/"):
+            logger.error(
+                "The source path is not absolute and does not start from the root."
+            )
+            raise RuntimeError(f"Ambiguous source path: {src!s}")
+
+        src = os.path.normpath(src.strip())
+        dst = os.path.normpath(os.path.expanduser(dst.strip()))
+
+        if dirname := os.path.dirname(dst):
             try:
                 os.makedirs(dirname, exist_ok=True)
             except OSError as err:
@@ -91,35 +155,20 @@ class PycURL:
 
         src = self._ensure_ftp_url(src)
         logger.debug(
-            "Downloading '%s' from FTP server to '%s' on the local machine.", src, dst
+            "Starting FTP download of '%s' to '%s' on the local machine.", src, dst
         )
 
-        curl = pycurl.Curl()
-        curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
-        curl.setopt(pycurl.URL, src)
-        curl.setopt(
-            pycurl.USERPWD,
-            "{0!s}:{1!s}".format(
-                self._connection_parameters.credentials.username,
-                self._connection_parameters.credentials.password.get_secret_value(),
-            ),
-        )
-        curl.setopt(pycurl.FTP_FILEMETHOD, pycurl.FTPMETHOD_NOCWD)
-        curl.setopt(pycurl.FTP_USE_EPSV, 1)
-        curl.setopt(pycurl.NOSIGNAL, 1)  # essential for multi-threaded programs
-        curl.setopt(pycurl.BUFFERSIZE, io.DEFAULT_BUFFER_SIZE)
-        for option, value in self._connection_parameters.extra_options.items():
-            curl.setopt(option, value)
         try:
+            self._curl.setopt(pycurl.URL, src)
             with io.open(dst, mode="wb") as buffer:
-                curl.setopt(pycurl.WRITEDATA, buffer)
-                curl.perform()
+                self._curl.setopt(pycurl.WRITEDATA, buffer)
+                self._curl.perform()
 
                 size_bytes = typing.cast(
-                    float, curl.getinfo(pycurl.SIZE_DOWNLOAD)  # type: ignore
+                    float, self._curl.getinfo(pycurl.SIZE_DOWNLOAD)  # type: ignore
                 )
                 logger.debug(
-                    "Completed transfer of %d bytes from FTP location '%s' to '%s'.",
+                    "Finished moving %d bytes from the FTP server '%s' to '%s'.",
                     size_bytes,
                     src,
                     dst,
@@ -127,6 +176,11 @@ class PycURL:
 
                 return size_bytes
         except pycurl.error as err:
+            # The file should be deleted so that no damaged or incomplete data remains.
+            if os.path.exists(dst):
+                with contextlib.suppress(OSError):
+                    os.remove(dst)
+
             logger.exception("An unexpected error occurred while fetching the data.")
             raise FTPError(
                 f"Encountered an error while trying to fetch the data from: {src!s}"
@@ -138,10 +192,7 @@ class PycURL:
             )
             raise RuntimeError(f"Failed to write buffer data to: {dst!s}") from err
 
-        finally:
-            curl.close()
-
-    def upload(self, src: str | pathlib.Path, dst: str | pathlib.Path) -> None:
+    def upload(self, src: str, dst: str) -> None:
         """Uploads a local file to the remote FTP server.
 
         Automatically converts the destination path to a full FTP URL and supports
@@ -150,49 +201,85 @@ class PycURL:
 
         Parameters
         ----------
-        src : str or pathlib.Path
+        src : str
             Path to the local file to upload.
 
-        dst : str or pathlib.Path
+        dst : str
             Path on the FTP server where the file should be placed.
 
         Raises
         ------
+        TypeError
+            If either the source or destination path is not a string.
+
+        ValueError
+            If the source or destination path is empty or contains only whitespace.
+
         RuntimeError
-            If reading the local file fails.
+            If the destination path is ambiguous (not absolute) or
+            if reading the local file fails.
 
         FTPError
             If the FTP upload fails due to network or server-side issues.
         """
-        dst = self._ensure_ftp_url(dst)
-        logger.debug("Starting file upload from local '%s' to FTP path '%s'.", src, dst)
+        if not isinstance(src, str) or not isinstance(dst, str):
+            logger.error(
+                "The source path and the destination path must each be a string."
+            )
+            raise TypeError(
+                "Both the source and destination need to be strings."
+                "\nSource {0!r} has type: {1!s}"
+                "\nDestination {2!r} has type: {3!s}".format(
+                    src,
+                    type(src).__name__,
+                    dst,
+                    type(dst).__name__,
+                )
+            )
 
-        curl = pycurl.Curl()
-        curl.setopt(pycurl.CONNECTTIMEOUT, self._connection_parameters.timeout)
-        curl.setopt(pycurl.URL, dst)
-        curl.setopt(
-            pycurl.USERPWD,
-            "{0!s}:{1!s}".format(
-                self._connection_parameters.credentials.username,
-                self._connection_parameters.credentials.password.get_secret_value(),
-            ),
+        if not src or not src.strip():
+            logger.error("A source path of only whitespace is invalid.")
+            raise ValueError(
+                "The source path must include at least one non-whitespace character."
+            )
+
+        if not dst or not dst.strip():
+            logger.error("A destination path of only whitespace is invalid.")
+            raise ValueError(
+                "The destination path cannot be empty or contain only blank characters."
+            )
+
+        if not dst.startswith("/"):
+            logger.error(
+                "The destination path is not absolute and does not start from the root."
+            )
+            raise RuntimeError(f"Ambiguous destination path: {dst!s}")
+
+        src = os.path.normpath(os.path.expanduser(src.strip()))
+        dst = os.path.normpath(dst.strip())
+
+        dst = self._ensure_ftp_url(dst)
+        logger.debug(
+            "Uploading '%s' from local system to '%s' on the FTP server.", src, dst
         )
-        curl.setopt(pycurl.FTP_USE_EPSV, 1)
-        curl.setopt(pycurl.NOSIGNAL, 1)  # crucial for programs with multiple threads
-        curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
-        curl.setopt(pycurl.INFILESIZE, os.path.getsize(src))
-        curl.setopt(pycurl.UPLOAD, 1)
-        for option, value in self._connection_parameters.extra_options.items():
-            curl.setopt(option, value)
+
         try:
+            self._curl.setopt(pycurl.URL, src)
+            # Create any missing remote directories in the destination path
+            # before attempting the upload operation.
+            self._curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
+            self._curl.setopt(pycurl.INFILESIZE, os.path.getsize(src))
+            self._curl.setopt(pycurl.UPLOAD, 1)
             with io.open(src, mode="rb") as stream:
-                curl.setopt(pycurl.READDATA, stream)
-                curl.perform()
-                logger.debug("Completed FTP upload of '%s' to '%s'.", src, dst)
+                self._curl.setopt(pycurl.READDATA, stream)
+                self._curl.perform()
+                logger.debug(
+                    "Finished uploading '%s' to '%s' on the FTP server.", src, dst
+                )
         except pycurl.error as err:
             logger.exception("File could not be uploaded to the FTP server.")
             raise FTPError(
-                f"Could not upload {str(src)!r} to {dst!r} on FTP server."
+                f"Could not upload {src!r} to {dst!r} on FTP server."
             ) from err
 
         except (IOError, OSError) as err:
@@ -202,4 +289,80 @@ class PycURL:
             ) from err
 
         finally:
+            # Clear transfer-specific settings to make the handle
+            # ready for the next request.
+            self._curl.setopt(pycurl.INFILESIZE, -1)
+            self._curl.setopt(pycurl.UPLOAD, 0)
+
+
+class PycURLPoolManager:
+    """Pool of reusable `PycURL` instances to enable concurrent FTP transfers
+    while minimizing connection overhead.
+
+    Each `PycURL` instance maintains a persistent cURL handle that can be reused
+    for multiple uploads or downloads, allowing efficient handling of many
+    small files without repeatedly establishing new connections."""
+
+    _pool: queue.LifoQueue[PycURL]
+
+    def __init__(self, connection_parameters: ConnectionParameters) -> None:
+        self._connection_parameters = connection_parameters
+
+        self._pool = queue.LifoQueue(
+            maxsize=max(1, self._connection_parameters.max_connections // 2)
+        )
+        for _ in range(self._pool.maxsize):
+            self._pool.put(PycURL(connection_parameters=self._connection_parameters))
+
+    def close(self) -> None:
+        """Closes all `PycURL` instances in the pool and releases resources."""
+        while not self._pool.empty():
+            curl = self._pool.get_nowait()  # retrieve without blocking
             curl.close()
+
+    @contextlib.contextmanager
+    def acquire(self) -> typing.Iterator[PycURL]:
+        """Context manager for safely acquiring a `PycURL` instance from the pool.
+
+        The instance is automatically returned to the pool after the context exits.
+
+        Yields
+        ------
+        PycURL
+            A reusable instance for performing uploads or downloads.
+        """
+        curl = self._pool.get()
+        logger.debug("Acquired instance: %d", id(curl))
+        try:
+            yield curl
+        finally:
+            self._pool.put(curl)
+            logger.debug("Released instance: %d", id(curl))
+
+    def download(self, src: str, dst: str) -> None:
+        """Downloads a file from the FTP server using a pooled `PycURL` instance.
+
+        Parameters
+        ----------
+        src : str
+            Remote FTP path of the file to download.
+
+        dst : str
+            Local path where the file will be saved.
+        """
+        with self.acquire() as curl:
+            curl.download(src, dst)
+
+    def upload(self, src: str, dst: str) -> None:
+        """Uploads a local file to the FTP server using a pooled `PycURL` instance.
+
+        Parameters
+        ----------
+        src : str
+            Path to the local file to upload.
+
+        dst : str
+            Destination path on the FTP server.
+        """
+        with self.acquire() as curl:
+            curl.upload(src, dst)
