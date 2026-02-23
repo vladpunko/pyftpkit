@@ -8,12 +8,12 @@ import typing
 import pydantic
 import pydantic_settings
 
-from pyftpkit.connection_parameters import ConnectionParameters
+from pyftpkit.connection_parameters import ConnectionParameters, Credentials
 
-__all__ = ["Config"]
+__all__ = ["LoaderSettings"]
 
 
-class Config(pydantic_settings.BaseSettings):
+class LoaderSettings(pydantic_settings.BaseSettings):
     """Settings required to initialize the asynchronous FTP loader."""
 
     model_config = pydantic_settings.SettingsConfigDict(
@@ -29,8 +29,8 @@ class Config(pydantic_settings.BaseSettings):
 
     @classmethod
     def from_arguments(
-        cls: type["Config"], arguments: dict[str, typing.Any]
-    ) -> "Config":
+        cls: type["LoaderSettings"], arguments: dict[str, typing.Any]
+    ) -> "LoaderSettings":
         """Creates a new instance from CLI arguments.
 
         Only explicitly provided arguments override environment-based
@@ -45,14 +45,16 @@ class Config(pydantic_settings.BaseSettings):
             if value is None:
                 continue
 
-            match key:
-                case "host" | "port" | "timeout" | "max_connections" | "max_workers":
-                    connection_parameters[key] = value
+            if key in ConnectionParameters.model_fields:
+                connection_parameters[key] = value
 
-                case "username" | "password":
-                    connection_parameters["credentials"][key] = value
+                continue
 
-                case _:
-                    overrides[key] = value
+            if key in Credentials.model_fields:
+                connection_parameters["credentials"][key] = value
+
+                continue
+
+            overrides[key] = value
 
         return cls(**overrides)
