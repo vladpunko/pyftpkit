@@ -5,14 +5,13 @@
 import logging
 import logging.config
 import os
-import pathlib
 import tempfile
 import typing
 
 __all__ = ["setup"]
 
 
-def setup(level: str = "INFO", path: str | pathlib.Path | None = None) -> None:
+def setup(level: str = "INFO", path: str | None = None) -> None:
     """Sets up the logging system for the package."""
     logging.config.dictConfig(
         {
@@ -29,7 +28,7 @@ def setup(level: str = "INFO", path: str | pathlib.Path | None = None) -> None:
                     "filename": os.environ.get(
                         "PYFTPKIT_LOGGER_PATH",
                         (
-                            str(path)
+                            path
                             if path is not None
                             else os.path.join(tempfile.gettempdir(), "pyftpkit.log")
                         ),
