@@ -2,8 +2,8 @@
 
 # Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
-import pathlib
 import secrets
+import shutil
 import tempfile
 import threading
 import types
@@ -61,12 +61,15 @@ def ftp_server(username, password):
     yield types.SimpleNamespace(
         host=host,
         port=port,
-        home=pathlib.Path(homedir),
-        root=pathlib.Path("/"),
+        home=homedir,
+        root="/",
     )
 
-    if server:
-        server.close()
+    server.close()
+
+    thread.join(timeout=10)
 
     if thread.is_alive():
-        thread.join()
+        raise RuntimeError("FTP test server thread did not terminate cleanly.")
+
+    shutil.rmtree(homedir, ignore_errors=True)

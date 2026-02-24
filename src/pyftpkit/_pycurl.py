@@ -183,9 +183,8 @@ class PycURL:
                 return size_bytes
         except pycurl.error as err:
             # The file should be deleted so that no damaged or incomplete data remains.
-            if os.path.exists(dst):
-                with contextlib.suppress(OSError):
-                    os.remove(dst)
+            with contextlib.suppress(OSError):
+                os.remove(dst)
 
             logger.exception("An unexpected error occurred while fetching the data.")
             raise FTPError(
