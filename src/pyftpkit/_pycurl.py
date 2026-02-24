@@ -6,6 +6,7 @@ import contextlib
 import io
 import logging
 import os
+import posixpath
 import queue
 import typing
 import urllib.parse
@@ -63,7 +64,12 @@ class PycURL:
             return path
 
         # Ensure the path is consistently formatted and safely encoded for URL usage.
-        normpath = urllib.parse.quote(path.strip().lstrip("/") or "/", safe="/")
+        # Use a double slash at the root to indicate an absolute FTP path
+        # in compliance with RFC 1738.
+        if path.startswith("/"):
+            path = "/" + path.lstrip("/")
+
+        normpath = urllib.parse.quote(path, safe="/")
 
         host = self._connection_parameters.host
         port = self._connection_parameters.port
@@ -139,7 +145,7 @@ class PycURL:
             )
             raise RuntimeError(f"Ambiguous source path: {src!s}")
 
-        src = os.path.normpath(src.strip())
+        src = posixpath.normpath(src.strip())
         dst = os.path.normpath(os.path.expanduser(dst.strip()))
 
         if dirname := os.path.dirname(dst):
@@ -161,7 +167,7 @@ class PycURL:
         try:
             self._curl.setopt(pycurl.URL, src)
             with io.open(dst, mode="wb") as buffer:
-                self._curl.setopt(pycurl.WRITEDATA, buffer)
+                self._curl.setopt(pycurl.WRITEFUNCTION, buffer.write)
                 self._curl.perform()
 
                 size_bytes = typing.cast(
@@ -191,6 +197,11 @@ class PycURL:
                 "An error occurred while trying to write the buffer to disk."
             )
             raise RuntimeError(f"Failed to write buffer data to: {dst!s}") from err
+
+        finally:
+            # Override this option to prevent retaining a reference to a file
+            # that has already been closed.
+            self._curl.setopt(pycurl.WRITEFUNCTION, lambda x: len(x))
 
     def upload(self, src: str, dst: str) -> None:
         """Uploads a local file to the remote FTP server.
@@ -256,7 +267,7 @@ class PycURL:
             raise RuntimeError(f"Ambiguous destination path: {dst!s}")
 
         src = os.path.normpath(os.path.expanduser(src.strip()))
-        dst = os.path.normpath(dst.strip())
+        dst = posixpath.normpath(dst.strip())
 
         dst = self._ensure_ftp_url(dst)
         logger.debug(
@@ -264,14 +275,14 @@ class PycURL:
         )
 
         try:
-            self._curl.setopt(pycurl.URL, src)
+            self._curl.setopt(pycurl.URL, dst)
             # Create any missing remote directories in the destination path
             # before attempting the upload operation.
             self._curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 1)
             self._curl.setopt(pycurl.INFILESIZE, os.path.getsize(src))
             self._curl.setopt(pycurl.UPLOAD, 1)
             with io.open(src, mode="rb") as stream:
-                self._curl.setopt(pycurl.READDATA, stream)
+                self._curl.setopt(pycurl.READFUNCTION, stream.read)
                 self._curl.perform()
                 logger.debug(
                     "Finished uploading '%s' to '%s' on the FTP server.", src, dst
@@ -292,6 +303,7 @@ class PycURL:
             # Clear transfer-specific settings to make the handle
             # ready for the next request.
             self._curl.setopt(pycurl.INFILESIZE, -1)
+            self._curl.setopt(pycurl.READFUNCTION, lambda x: b"")
             self._curl.setopt(pycurl.UPLOAD, 0)
 
 
@@ -314,17 +326,28 @@ class PycURLPoolManager:
         for _ in range(self._pool.maxsize):
             self._pool.put(PycURL(connection_parameters=self._connection_parameters))
 
+        # Indicator used to ensure active connections are not returned
+        # to a pool that has already been closed.
+        self._shutdown = False
+
     def close(self) -> None:
         """Closes all `PycURL` instances in the pool and releases resources."""
+        self._shutdown = True
+
         while not self._pool.empty():
-            curl = self._pool.get_nowait()  # retrieve without blocking
-            curl.close()
+            try:
+                curl = self._pool.get_nowait()  # retrieve without blocking
+                curl.close()
+            except queue.Empty:
+                break
 
     @contextlib.contextmanager
     def acquire(self) -> typing.Iterator[PycURL]:
         """Context manager for safely acquiring a `PycURL` instance from the pool.
 
         The instance is automatically returned to the pool after the context exits.
+        If the pool manager is shut down while an instance is in use, the instance
+        will be closed upon release.
 
         Yields
         ------
@@ -336,8 +359,12 @@ class PycURLPoolManager:
         try:
             yield curl
         finally:
-            self._pool.put(curl)
-            logger.debug("Released instance: %d", id(curl))
+            if self._shutdown:
+                logger.debug("Closing instance during shutdown: %d", id(curl))
+                curl.close()
+            else:
+                self._pool.put(curl)
+                logger.debug("Released instance: %d", id(curl))
 
     def download(self, src: str, dst: str) -> None:
         """Downloads a file from the FTP server using a pooled `PycURL` instance.
