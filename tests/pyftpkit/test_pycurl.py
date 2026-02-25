@@ -103,7 +103,7 @@ def test_download_no_permissions(caplog, fs_no_root, pycurl_instance):
     message = "Failed to create a new directory on the current machine."
     assert message in caplog.text
 
-    message = f"Could not create target directory: {str(path)!s}"
+    message = "Could not create target directory: {0!r}".format(str(path / "documents"))
     assert message in str(err.value)
 
 
@@ -241,7 +241,7 @@ def test_download_validation_no_root_slash(caplog, pycurl_instance):
     message = "The source path is not absolute and does not start from the root."
     assert message in caplog.text
 
-    message = f"Ambiguous source path: {src!s}"
+    message = f"Ambiguous source path: {src!r}"
     assert message in str(err.value)
 
 
@@ -262,7 +262,7 @@ def test_download_with_error(
     message = "An unexpected error occurred while fetching the data."
     assert message in caplog.text
 
-    message = "Encountered an error while trying to fetch the data from: {0!s}".format(
+    message = "Encountered an error while trying to fetch the data from: {0!r}".format(
         f"ftp://{host!s}:{port!s}{src!s}"
     )
     assert message in str(err.value)
@@ -283,7 +283,7 @@ def test_download_with_fs_error(caplog, fs_no_root, pycurl_instance, pycurl_mock
     message = "An error occurred while trying to write the buffer to disk."
     assert message in caplog.text
 
-    message = f"Failed to write buffer data to: {str(dst)!s}"
+    message = f"Failed to write buffer data to: {str(dst)!r}"
     assert message in str(err.value)
 
 
@@ -373,7 +373,7 @@ def test_upload_with_fs_error(caplog, fs_no_root, pycurl_mock, pycurl_instance):
     message = "File read operation failed on local system."
     assert message in caplog.text
 
-    message = f"An error occurred while accessing the local file: {str(src)!s}."
+    message = f"An error occurred while accessing the local file: {str(src)!r}."
     assert message in str(err.value)
 
 
@@ -453,7 +453,7 @@ def test_upload_validation_no_root_slash(caplog, pycurl_instance):
     message = "The destination path is not absolute and does not start from the root."
     assert message in caplog.text
 
-    message = f"Ambiguous destination path: {dst!s}"
+    message = f"Ambiguous destination path: {dst!r}"
     assert message in str(err.value)
 
 

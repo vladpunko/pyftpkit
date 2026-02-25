@@ -127,13 +127,16 @@ class PycURL:
                 )
             )
 
-        if not src or not src.strip():
+        src = src.strip()
+        dst = dst.strip()
+
+        if not src:
             logger.error("The source path cannot be empty or whitespace.")
             raise ValueError(
                 "The source path must not be empty or consist only of whitespace."
             )
 
-        if not dst or not dst.strip():
+        if not dst:
             logger.error("The destination path cannot be empty or whitespace.")
             raise ValueError(
                 "The destination path must not be empty or consist only of whitespace."
@@ -143,10 +146,10 @@ class PycURL:
             logger.error(
                 "The source path is not absolute and does not start from the root."
             )
-            raise RuntimeError(f"Ambiguous source path: {src!s}")
+            raise RuntimeError(f"Ambiguous source path: {src!r}")
 
-        src = posixpath.normpath(src.strip())
-        dst = os.path.normpath(os.path.expanduser(dst.strip()))
+        src = posixpath.normpath(src)
+        dst = os.path.normpath(os.path.expanduser(dst))
 
         if dirname := os.path.dirname(dst):
             try:
@@ -156,7 +159,7 @@ class PycURL:
                     "Failed to create a new directory on the current machine."
                 )
                 raise RuntimeError(
-                    f"Could not create target directory: {dirname!s}"
+                    f"Could not create target directory: {dirname!r}"
                 ) from err
 
         src = self._ensure_ftp_url(src)
@@ -188,14 +191,14 @@ class PycURL:
 
             logger.exception("An unexpected error occurred while fetching the data.")
             raise FTPError(
-                f"Encountered an error while trying to fetch the data from: {src!s}"
+                f"Encountered an error while trying to fetch the data from: {src!r}"
             ) from err
 
         except (IOError, OSError) as err:
             logger.exception(
                 "An error occurred while trying to write the buffer to disk."
             )
-            raise RuntimeError(f"Failed to write buffer data to: {dst!s}") from err
+            raise RuntimeError(f"Failed to write buffer data to: {dst!r}") from err
 
         finally:
             # Override this option to prevent retaining a reference to a file
@@ -247,13 +250,16 @@ class PycURL:
                 )
             )
 
-        if not src or not src.strip():
+        src = src.strip()
+        dst = dst.strip()
+
+        if not src:
             logger.error("A source path of only whitespace is invalid.")
             raise ValueError(
                 "The source path must include at least one non-whitespace character."
             )
 
-        if not dst or not dst.strip():
+        if not dst:
             logger.error("A destination path of only whitespace is invalid.")
             raise ValueError(
                 "The destination path cannot be empty or contain only blank characters."
@@ -263,10 +269,10 @@ class PycURL:
             logger.error(
                 "The destination path is not absolute and does not start from the root."
             )
-            raise RuntimeError(f"Ambiguous destination path: {dst!s}")
+            raise RuntimeError(f"Ambiguous destination path: {dst!r}")
 
-        src = os.path.normpath(os.path.expanduser(src.strip()))
-        dst = posixpath.normpath(dst.strip())
+        src = os.path.normpath(os.path.expanduser(src))
+        dst = posixpath.normpath(dst)
 
         dst = self._ensure_ftp_url(dst)
         logger.debug(
@@ -295,7 +301,7 @@ class PycURL:
         except (IOError, OSError) as err:
             logger.exception("File read operation failed on local system.")
             raise RuntimeError(
-                f"An error occurred while accessing the local file: {src!s}."
+                f"An error occurred while accessing the local file: {src!r}."
             ) from err
 
         finally:
