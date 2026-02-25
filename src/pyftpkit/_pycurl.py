@@ -66,10 +66,10 @@ class PycURL:
         # Ensure the path is consistently formatted and safely encoded for URL usage.
         # Use a double slash at the root to indicate an absolute FTP path
         # in compliance with RFC 1738.
-        if path.startswith("/"):
-            path = "/" + path.lstrip("/")
+        if path.startswith(posixpath.sep):
+            path = posixpath.sep + path.lstrip(posixpath.sep)
 
-        normpath = urllib.parse.quote(path, safe="/")
+        normpath = urllib.parse.quote(path, safe=posixpath.sep)
 
         host = self._connection_parameters.host
         port = self._connection_parameters.port
@@ -139,7 +139,7 @@ class PycURL:
                 "The destination path must not be empty or consist only of whitespace."
             )
 
-        if not src.startswith("/"):
+        if not src.startswith(posixpath.sep):
             logger.error(
                 "The source path is not absolute and does not start from the root."
             )
@@ -259,7 +259,7 @@ class PycURL:
                 "The destination path cannot be empty or contain only blank characters."
             )
 
-        if not dst.startswith("/"):
+        if not dst.startswith(posixpath.sep):
             logger.error(
                 "The destination path is not absolute and does not start from the root."
             )
