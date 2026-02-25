@@ -6,9 +6,11 @@ import asyncio
 import ftplib
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from pyftpkit._ftp import FTP
 from pyftpkit._pool import FTPPoolExecutor
 from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.exceptions import FTPError
@@ -68,18 +70,31 @@ def test_connect(caplog, connection_parameters, ftp_server):
     assert message in caplog.text
 
 
+def test_executor_property(connection_parameters):
+    executor = ThreadPoolExecutor(max_workers=1)
+    pool = FTPPoolExecutor(
+        connection_parameters=connection_parameters, executor=executor
+    )
+
+    assert pool.executor is executor
+    assert not pool._owns_executor
+
+    executor.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_open_connections(caplog, connection_parameters, ftp_server):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
+    expected_size = max(1, connection_parameters.max_connections // 2)
 
     with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
         async with FTPPoolExecutor(connection_parameters=connection_parameters) as pool:
-            assert pool._pool.qsize() == connection_parameters.max_connections
-            assert len(pool._connections) == connection_parameters.max_connections
+            assert pool._pool.qsize() == expected_size
+            assert len(pool._connections) == expected_size
 
     message = "FTP connection pool has been initialized with {0!s} connections.".format(
-        connection_parameters.max_connections
+        expected_size
     )
     assert message in caplog.text
 
@@ -104,17 +119,79 @@ async def test_open_connections_timeout(mocker, caplog, connection_parameters):
 
 
 @pytest.mark.asyncio
+async def test_open_connections_wraps_unexpected_error(
+    caplog, mocker, connection_parameters
+):
+    def _connect(*args, **kwargs):
+        raise ValueError("error")
+
+    mocker.patch("pyftpkit._pool.FTPPoolExecutor._connect", new=_connect)
+
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(FTPError) as err:
+            await pool.open()
+
+    message = "Unable to initialize the connection pool."
+    assert message in caplog.text
+
+    message = "Error occurred while initializing the FTP connection pool."
+    assert message in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_open_connections_closes_on_error(mocker, connection_parameters):
+    connection_parameters.max_connections = 4
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    ftp = FTP()
+
+    connect_mock = mocker.Mock(side_effect=[ftp, FTPError("error")])
+    mocker.patch.object(pool, "_connect", connect_mock)
+    close_mock = mocker.patch.object(pool, "_close_connection")
+
+    with pytest.raises(FTPError):
+        await pool.open()
+
+    close_mock.assert_called_once_with(ftp)
+
+
+@pytest.mark.asyncio
 async def test_open_only_once(mocker, connection_parameters, ftp_server):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
     connection_parameters.max_connections = 2
+
     connect_mock = mocker.patch("pyftpkit._pool.FTPPoolExecutor._connect")
 
     pool = FTPPoolExecutor(connection_parameters=connection_parameters)
     await pool.open()
     await pool.open()
 
-    assert connect_mock.call_count == 2
+    assert connect_mock.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_open_double_checked_lock_returns_early(mocker, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+
+    event = asyncio.Event()
+
+    async def _open_connections():
+        await event.wait()
+
+        pool._closed = False
+
+    mocker.patch.object(pool, "_open_connections", side_effect=_open_connections)
+
+    first = asyncio.create_task(pool.open())
+    await asyncio.sleep(0)
+    second = asyncio.create_task(pool.open())
+    await asyncio.sleep(0)
+    event.set()
+    await asyncio.gather(first, second)
+
+    assert pool._closed is False
 
 
 @pytest.mark.asyncio
@@ -133,27 +210,25 @@ async def test_get_connection_no_pool(caplog, connection_parameters):
 
 
 @pytest.mark.asyncio
-async def test_release_no_pool(caplog, ftp_server, connection_parameters):
+async def test_release_no_pool(caplog, mocker, ftp_server, connection_parameters):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
     pool = FTPPoolExecutor(connection_parameters=connection_parameters)
     ftp = pool._connect()
-    pool._connections.add(ftp)
+    close_mock = mocker.patch.object(pool, "_close_connection")
 
-    with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError) as err:
-            await pool.release(ftp)
+    with caplog.at_level(logging.WARNING, logger="pyftpkit"):
+        await pool.release(ftp)
 
     message = "No active connection pool available to release the FTP connection."
     assert message in caplog.text
 
-    message = "FTP connection pool does not exist or is closed."
-    assert message in str(err.value)
+    close_mock.assert_called_once_with(ftp)
 
 
 @pytest.mark.asyncio
 async def test_release_not_tracked_connection(
-    caplog, ftp_server, connection_parameters
+    caplog, mocker, ftp_server, connection_parameters
 ):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
@@ -161,11 +236,15 @@ async def test_release_not_tracked_connection(
     await pool.open()
 
     ftp = pool._connect()
+    close_mock = mocker.patch.object(pool, "_close_connection")
+
     with caplog.at_level(logging.WARNING, logger="pyftpkit"):
         await pool.release(ftp)
 
     message = "Released FTP connection was not tracked."
     assert message in caplog.text
+
+    close_mock.assert_called_once_with(ftp)
 
 
 def test_close_connection(mocker, ftp_server, connection_parameters):
@@ -213,11 +292,30 @@ def test_close_connection_with_exceptions(
 async def test_close_no_pool(caplog, connection_parameters):
     pool = FTPPoolExecutor(connection_parameters=connection_parameters)
 
-    with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
-        await pool.close()
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+        with pytest.raises(RuntimeError) as err:
+            await pool.close()
 
-    message = "No pool to close."
+    message = "There is no active connection pool available to close."
     assert message in caplog.text
+
+    message = "The connection pool is either inactive or previously closed."
+    assert message in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_close_before_open_raises(caplog, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError) as err:
+            await pool.close()
+
+    message = "There is no active connection pool available to close."
+    assert message in caplog.text
+
+    message = "The connection pool is either inactive or previously closed."
+    assert message in str(err.value)
 
 
 @pytest.mark.asyncio
@@ -234,7 +332,7 @@ async def test_close_only_once(mocker, ftp_server, connection_parameters):
     await pool.close()
     await pool.close()
 
-    assert close_connection_mock.call_count == 2
+    assert close_connection_mock.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -252,6 +350,177 @@ async def test_close(caplog, ftp_server, connection_parameters):
 
     assert not pool._connections
     assert pool._pool.qsize() == 0
+
+
+@pytest.mark.asyncio
+async def test_close_handles_queue_empty_race(connection_parameters):
+    class _FakeQueue:
+        def __init__(self):
+            self._used = False
+
+        def empty(self):
+            if not self._used:
+                return False
+
+            return True
+
+        def get_nowait(self):
+            self._used = True
+
+            raise asyncio.QueueEmpty
+
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = _FakeQueue()
+    pool._closed = False
+
+    await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_close_does_not_shutdown_external_executor(mocker, connection_parameters):
+    executor = ThreadPoolExecutor(max_workers=1)
+    pool = FTPPoolExecutor(
+        connection_parameters=connection_parameters,
+        executor=executor,
+    )
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    shutdown_mock = mocker.patch.object(executor, "shutdown", wraps=executor.shutdown)
+
+    await pool.close()
+
+    shutdown_mock.assert_not_called()
+    executor.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_close_logs_close_errors(mocker, caplog, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    ftp_mock = mocker.Mock()
+    pool._connections.add(ftp_mock)
+
+    close_mock = mocker.patch.object(
+        pool, "_close_connection", side_effect=FTPError("error")
+    )
+
+    loop = asyncio.get_running_loop()
+    run_in_executor = mocker.AsyncMock(
+        side_effect=lambda executor, func, *args: func(*args)
+    )
+    mocker.patch.object(loop, "run_in_executor", run_in_executor)
+
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+        await pool.close()
+
+    close_mock.assert_called_once_with(ftp_mock)
+    assert "Failed to close an FTP connection." in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_get_reconnects_dead_connection(mocker, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    ftp_bad = mocker.Mock()
+    ftp_bad.voidcmd.side_effect = ftplib.error_temp("error")
+    ftp_new = mocker.Mock()
+
+    pool._connections.add(ftp_bad)
+    await pool._pool.put(ftp_bad)
+
+    mocker.patch.object(pool, "_connect", return_value=ftp_new)
+
+    loop = asyncio.get_running_loop()
+    run_in_executor = mocker.AsyncMock(
+        side_effect=lambda executor, func, *args: func(*args)
+    )
+    mocker.patch.object(loop, "run_in_executor", run_in_executor)
+
+    ftp = await pool.get()
+
+    assert ftp is ftp_new
+    assert ftp_new in pool._connections
+    ftp_bad.quit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_returns_alive_connection(mocker, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    ftp_mock = mocker.Mock()
+    pool._connections.add(ftp_mock)
+    await pool._pool.put(ftp_mock)
+
+    loop = asyncio.get_running_loop()
+    run_in_executor = mocker.AsyncMock(
+        side_effect=lambda executor, func, *args: func(*args)
+    )
+    mocker.patch.object(loop, "run_in_executor", run_in_executor)
+
+    ftp = await pool.get()
+
+    assert ftp is ftp_mock
+    ftp_mock.voidcmd.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_release_returns_to_pool(mocker, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    ftp_mock = mocker.Mock()
+    pool._connections.add(ftp_mock)
+
+    await pool.release(ftp_mock)
+
+    assert pool._pool.qsize() == 1
+
+
+@pytest.mark.asyncio
+async def test_acquire_releases_connection(mocker, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    ftp_mock = mocker.Mock()
+    pool._connections.add(ftp_mock)
+    await pool._pool.put(ftp_mock)
+
+    async with pool.acquire() as connection:
+        assert connection is ftp_mock
+
+    assert pool._pool.qsize() == 1
+
+
+@pytest.mark.asyncio
+async def test_open_connections_logs_generic_error(
+    mocker, caplog, connection_parameters
+):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+
+    gather_mock = mocker.patch("asyncio.gather", side_effect=RuntimeError("error"))
+
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+        with pytest.raises(FTPError):
+            await pool.open()
+
+    assert gather_mock.called
+    assert "Unable to create the FTP connection pool." in caplog.text
 
 
 @pytest.mark.asyncio
