@@ -27,3 +27,16 @@ def test_connect_sets_socket_options(host, port):
             mock.call(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)),
         ]
         socket_mock.setsockopt.assert_has_calls(expected_calls, any_order=False)
+
+
+def test_connect_skips_socket_options_without_socket(host, port):
+    ftp = FTP()
+
+    with mock.patch("pyftpkit._ftp.ftplib.FTP.connect", return_value="welcome"):
+        with mock.patch("pyftpkit._ftp._set_socket_options") as set_options_mock:
+            ftp.sock = None
+
+            message = ftp.connect(host, port)
+
+    assert message == "welcome"
+    set_options_mock.assert_not_called()
