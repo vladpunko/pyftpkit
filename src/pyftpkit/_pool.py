@@ -3,10 +3,10 @@
 # Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
 import asyncio
+import contextlib
 import ftplib
 import logging
 import typing
-import weakref
 from concurrent.futures import ThreadPoolExecutor
 
 from pyftpkit._ftp import FTP
@@ -37,7 +37,7 @@ class FTPPoolExecutor:
         self._connection_parameters = connection_parameters
 
         # We need to track all connections for proper cleanup.
-        self._connections: weakref.WeakSet[FTP] = weakref.WeakSet()
+        self._connections: set[FTP] = set()
 
         # We need to ensure that all asynchronous objects are created during
         # pool initialization so they are bound to the correct event loop.
@@ -48,8 +48,9 @@ class FTPPoolExecutor:
 
         # External executor or an internal one for blocking calls.
         self._executor = executor or ThreadPoolExecutor(
-            max_workers=self._connection_parameters.max_workers
+            max_workers=max(1, self._connection_parameters.max_workers)
         )
+        self._owns_executor = executor is None
 
     @property
     def executor(self) -> ThreadPoolExecutor:
@@ -62,7 +63,6 @@ class FTPPoolExecutor:
 
     async def __aexit__(self, *args: typing.Any, **kwargs: typing.Any) -> None:
         await self.close()
-        self._executor.shutdown(wait=True)
 
         logger.info("The FTP connection pool is now closed.")
 
@@ -133,19 +133,51 @@ class FTPPoolExecutor:
 
         tasks = [
             loop.run_in_executor(self._executor, self._connect)
-            for _ in range(self._connection_parameters.max_connections)
+            for _ in range(max(1, self._connection_parameters.max_connections // 2))
         ]
+
+        # Initialize a list to hold successfully created connections.
+        connections: list[FTP] = []
         try:
-            # Wait for all connections to be established.
-            connections: list[FTP] = await asyncio.wait_for(
-                asyncio.gather(*tasks, return_exceptions=False),
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
                 timeout=self._connection_parameters.timeout,
             )
+
+            # Check for any exceptions in the results.
+            errors = [res for res in results if isinstance(res, Exception)]
+
+            if errors:
+                # If an error occurs, any connections that were successfully opened must
+                # be closed to prevent resource leaks before propagating the exception.
+                for res in results:
+                    if isinstance(res, FTP):
+                        self._close_connection(res)
+
+                logger.error("Unable to initialize the connection pool.")
+                error = errors[0]
+                if isinstance(error, FTPError):
+                    raise error
+
+                raise FTPError(
+                    "Error occurred while initializing the FTP connection pool."
+                ) from error
+
+            connections = typing.cast(list[FTP], results)
         except asyncio.TimeoutError as err:
             logger.exception(
                 "FTP connection pool failed to initialize within the timeout period."
             )
             raise FTPError("FTP connection pool initialization timed out.") from err
+
+        except Exception as err:
+            if not isinstance(err, FTPError):
+                logger.exception("Unable to create the FTP connection pool.")
+                raise FTPError(
+                    "Error occurred while initializing the FTP connection pool."
+                ) from err
+
+            raise
 
         for connection in connections:
             self._connections.add(connection)
@@ -153,7 +185,7 @@ class FTPPoolExecutor:
 
         logger.debug(
             "FTP connection pool has been initialized with %d connections.",
-            self._connection_parameters.max_connections,
+            len(self._connections),
         )
 
         self._closed = False
@@ -175,8 +207,11 @@ class FTPPoolExecutor:
         self._ensure_lock()
 
         async with self._lock:
+            if not self._closed:
+                return None
+
             self._pool = asyncio.Queue(
-                maxsize=self._connection_parameters.max_connections
+                maxsize=max(1, self._connection_parameters.max_connections // 2)
             )
 
             await self._open_connections()
@@ -200,7 +235,39 @@ class FTPPoolExecutor:
             )
             raise RuntimeError("Connection pool is not initialized or is closed.")
 
-        return await self._pool.get()
+        ftp = await self._pool.get()
+
+        return await self._ensure_connection(ftp)
+
+    async def _ensure_connection(self, ftp: FTP) -> FTP:
+        """Ensures the FTP connection is still alive before returning it.
+
+        This check is required to avoid poisoning the connection pool with dead or
+        stale connections, which could cause subsequent FTP operations to fail.
+
+        Returns
+        -------
+        FTP
+            A valid FTP connection ready for use.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            # Verify the connection is still alive without blocking the event loop.
+            await loop.run_in_executor(self._executor, lambda: ftp.voidcmd("NOOP"))
+
+            return ftp
+        except ftplib.all_errors:
+            logger.warning(
+                "The pooled FTP connection was inactive. Attempting to reconnect."
+            )
+            self._connections.discard(ftp)
+            self._close_connection(ftp)
+
+            # Initiate a new connection.
+            ftp = await loop.run_in_executor(self._executor, self._connect)
+            self._connections.add(ftp)
+
+            return ftp
 
     async def release(self, ftp: FTP) -> None:
         """Returns an FTP connection back to the pool for reuse.
@@ -211,18 +278,38 @@ class FTPPoolExecutor:
             The FTP connection to be returned to the pool.
         """
         if self._closed or getattr(self, "_pool", None) is None:
-            logger.error(
+            logger.warning(
                 "No active connection pool available to release the FTP connection."
             )
-            raise RuntimeError("FTP connection pool does not exist or is closed.")
+            self._close_connection(ftp)
 
-        # Ensure the connection is still in the weak set before putting it back.
+            return None
+
+        # Ensure the connection is still in the set before putting it back.
         if ftp not in self._connections:
-            logger.warning("Released FTP connection was not tracked.")
+            logger.warning(
+                "Released FTP connection was not tracked. It will be closed."
+            )
+            self._close_connection(ftp)
 
             return None
 
         await self._pool.put(ftp)
+
+    @contextlib.asynccontextmanager
+    async def acquire(self) -> typing.AsyncIterator[FTP]:
+        """Acquires an FTP connection from the pool and releases it automatically.
+
+        Yields
+        ------
+        FTP
+            An active FTP connection from the pool.
+        """
+        ftp = await self.get()
+        try:
+            yield ftp
+        finally:
+            await self.release(ftp)
 
     def _close_connection(self, ftp: FTP) -> None:
         """Safely closes a single FTP connection."""
@@ -242,33 +329,55 @@ class FTPPoolExecutor:
 
     async def close(self) -> None:
         """Safely closes all FTP connections in the pool."""
+        self._ensure_lock()
+
         if getattr(self, "_pool", None) is None:
-            logger.debug("No pool to close.")
+            logger.error("There is no active connection pool available to close.")
+            raise RuntimeError(
+                "The connection pool is either inactive or previously closed."
+            )
 
-            return None
-
-        connections: set[FTP] = set()
         async with self._lock:
             if self._closed:
                 return None
 
             loop = asyncio.get_running_loop()
-
-            while not self._pool.empty():  # drain the pool queue
-                connections.add(await self._pool.get())
-            connections.update(self._connections)
-
-            # Clear the weakset now that we have a strong reference to all connections.
-            self._connections.clear()
-
-            tasks = [
-                loop.run_in_executor(self._executor, self._close_connection, connection)
-                for connection in connections
-            ]
-            await asyncio.gather(*tasks)
-
+            # Mark closed immediately to stop new gets.
             self._closed = True
 
-        logger.debug(
-            "All FTP connections in the pool and tracked set have been closed."
-        )
+            # Empty the pool to retrieve all currently idle connections.
+            connections: set[FTP] = set()
+            while not self._pool.empty():
+                try:
+                    connections.add(self._pool.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
+
+            # This will forcibly close connections that might be in use.
+            connections.update(self._connections)
+
+            # Wipe the tracked set after promoting all connections to strong references.
+            self._connections.clear()
+
+            # Provide a resilient close wrapper that absorbs errors so cleanup
+            # continues uninterrupted.
+            def _close(ftp: FTP) -> None:
+                try:
+                    self._close_connection(ftp)
+                except Exception:
+                    logger.exception("Failed to close an FTP connection.")
+
+            if connections:
+                tasks = [
+                    loop.run_in_executor(self._executor, _close, connection)
+                    for connection in connections
+                ]
+                await asyncio.gather(*tasks)
+
+            logger.debug(
+                "All FTP connections in the pool and tracked set have been closed."
+            )
+
+            # Run shutdown in a separate thread to avoid blocking the loop.
+            if self._owns_executor:
+                await asyncio.to_thread(self._executor.shutdown)
