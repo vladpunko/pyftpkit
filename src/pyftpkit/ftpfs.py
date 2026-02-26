@@ -11,6 +11,7 @@ import ftplib
 import functools
 import logging
 import posixpath
+import re
 import typing
 from concurrent.futures import ThreadPoolExecutor
 
@@ -42,6 +43,12 @@ class FTPFileSystem:
     """
 
     _SYMLINK_SEP: typing.Final[str] = " -> "
+
+    # Use a regular expression instead of naive string splitting to ensure
+    # robust parsing of `LIST` output.
+    _LIST_ENTRY_REGEX: typing.Final[re.Pattern[str]] = re.compile(
+        r"^(?P<perms>.{10})\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(?P<name>.*)$"
+    )
 
     def __init__(
         self,
@@ -112,31 +119,31 @@ class FTPFileSystem:
         logger.debug(repr(entries))
 
         for entry in entries:
+            line = entry.rstrip("\r\n")
             # Skip empty or malformed lines.
             # A valid line begins with a 10-character permission field.
-            if not entry or len(entry) < 10:
+            if not line or len(line) < 10:
                 logger.debug("Skipping malformed entry: %r", entry)
 
                 continue
 
-            parts = entry.strip().split(maxsplit=8)
-            if not parts:
+            match = self._LIST_ENTRY_REGEX.match(line)
+            if not match:
                 logger.debug("Skipping entry with no fields: %r", entry)
-
                 continue
 
-            name = parts[-1]
+            name = match.group("name")
             if name in (posixpath.curdir, posixpath.pardir):
                 continue
 
-            if entry.startswith("l"):
+            if line.startswith("l"):
                 try:
                     name, _ = name.split(self._SYMLINK_SEP, maxsplit=1)
                 except ValueError:
                     continue
 
             abspath = posixpath.join(path, name)
-            if entry.startswith("d"):
+            if line.startswith("d"):
                 yield FTPEntryType.DIRECTORY, abspath
             else:
                 yield FTPEntryType.FILE, abspath
