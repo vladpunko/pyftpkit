@@ -19,32 +19,6 @@ from pyftpkit.exceptions import (
     FTPPathNotAbsoluteError,
 )
 
-FILENAMES_WITH_SYMBOLS = [
-    " space-start.txt",
-    ".hidden.txt",
-    "ampersand&and.txt",
-    "at@home.txt",
-    "braces{0}.txt",
-    "brackets[0].txt",
-    "caret^caret.txt",
-    "comma,comma.txt",
-    "dollar$bill.txt",
-    "double  space.txt",
-    "double-space-end.txt  ",
-    "equals=.txt",
-    "exclaim!.txt",
-    "hash#tag.txt",
-    "paren(0).txt",
-    "percent%value.txt",
-    "plus+plus.txt",
-    "quote'.txt",
-    "semi;colon.txt",
-    "simple.txt",
-    "space-end.txt ",
-    "tilde~tilde.txt",
-    "with space.txt",
-]
-
 
 @pytest.fixture
 def connection_parameters(
@@ -773,7 +747,7 @@ def test_pool_manager_upload(pycurl_pool_manager, mocker):
 
 
 def test_upload_special_symbol_files_to_ftp_server(
-    ftp_server, connection_parameters, tmp_path
+    ftp_server, connection_parameters, tmp_path, filenames_with_symbols
 ):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
@@ -782,7 +756,7 @@ def test_upload_special_symbol_files_to_ftp_server(
 
     files = {}
     try:
-        for index, name in enumerate(FILENAMES_WITH_SYMBOLS):
+        for index, name in enumerate(filenames_with_symbols):
             content = f"content # {index!s}"
             src = tmp_path / name
             src.write_text(content, encoding="utf-8")
@@ -798,7 +772,7 @@ def test_upload_special_symbol_files_to_ftp_server(
 
 
 def test_download_special_symbol_files_from_ftp_server(
-    ftp_server, connection_parameters, tmp_path
+    ftp_server, connection_parameters, tmp_path, filenames_with_symbols
 ):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
@@ -807,7 +781,7 @@ def test_download_special_symbol_files_from_ftp_server(
 
     files = {}
     try:
-        for index, name in enumerate(FILENAMES_WITH_SYMBOLS):
+        for index, name in enumerate(filenames_with_symbols):
             content = f"content # {index!s}"
             ftp_path = "/" + name
             files[ftp_path] = content

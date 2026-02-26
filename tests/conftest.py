@@ -42,6 +42,35 @@ def password():
 
 
 @pytest.fixture
+def filenames_with_symbols():
+    return [
+        " space-start.txt",
+        ".hidden.txt",
+        "ampersand&and.txt",
+        "at@home.txt",
+        "braces{0}.txt",
+        "brackets[0].txt",
+        "caret^caret.txt",
+        "comma,comma.txt",
+        "dollar$bill.txt",
+        "double  space.txt",
+        "double-space-end.txt  ",
+        "equals=.txt",
+        "exclaim!.txt",
+        "hash#tag.txt",
+        "paren(0).txt",
+        "percent%value.txt",
+        "plus+plus.txt",
+        "quote'.txt",
+        "semi;colon.txt",
+        "simple.txt",
+        "space-end.txt ",
+        "tilde~tilde.txt",
+        "with space.txt",
+    ]
+
+
+@pytest.fixture
 def ftp_server(username, password):
     homedir = tempfile.mkdtemp()
 
