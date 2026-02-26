@@ -10,7 +10,7 @@ from pyftpkit._pathtrie import PathTrie
 @pytest.mark.parametrize(
     "paths, expected_paths",
     [
-        (["../a/b"], ["/", "/a", "/a/b"]),
+        (["../a/b"], ["a", "a/b"]),
         (["./a/b"], ["a", "a/b"]),
         ([""], []),
         (["/.1/2/3"], ["/", "/.1", "/.1/2", "/.1/2/3"]),

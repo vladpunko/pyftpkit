@@ -42,7 +42,7 @@ PathTrie::Insert(const std::string &path)
     }
 
     for (const auto &part : SplitPath(path, kUnixSep)) {
-        if (part.empty() || part == ".") {  // "." and ".."
+        if (part.empty() || part == "." || part == "..") {
             continue;
         }
         node = InsertPath(node, std::string(part));
