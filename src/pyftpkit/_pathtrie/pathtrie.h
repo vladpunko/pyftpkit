@@ -5,15 +5,15 @@
 #ifndef PATHTRIE_H_
 #define PATHTRIE_H_
 
+#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace pyftpkit {
 
 struct TrieNode {
-    std::unordered_map<std::string, std::unique_ptr<TrieNode>> children;
+    std::map<std::string, std::unique_ptr<TrieNode>> children;
 };
 
 // Use the forward declaration for this class and declare it as a friend of the
@@ -32,8 +32,8 @@ private:
     std::unique_ptr<TrieNode> root_;
 
     static constexpr char kUnixSep = '/';
-    static constexpr size_t kDepthReserve = 1 << 12;  // estimated average path depth in the trie
-    static constexpr size_t kPathsReserve = 1 << 12;  // expected number of unique paths
+    static constexpr size_t kPathLengthReserve = 1 << 12;  // estimated average path length (chars)
+    static constexpr size_t kPathsReserve = 1 << 12;       // expected number of unique paths
 
     void CollectPaths(const TrieNode *node,
                       std::string &buffer,

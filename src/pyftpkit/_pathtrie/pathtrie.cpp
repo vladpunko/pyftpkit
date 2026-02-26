@@ -2,6 +2,7 @@
 
 // Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
+#include <algorithm>
 #include <string_view>
 
 #include "pathtrie.h"
@@ -53,7 +54,10 @@ std::vector<std::string_view>
 PathTrie::SplitPath(const std::string &str, const char &sep)
 {
     std::vector<std::string_view> parts;
-    parts.reserve(kPathsReserve);  // avoid reallocations for small splits
+    if (!str.empty()) {
+        size_t parts_estimate = 1 + static_cast<size_t>(std::count(str.begin(), str.end(), sep));
+        parts.reserve(parts_estimate);
+    }
 
     size_t start = 0;
     size_t end = 0;
@@ -76,10 +80,10 @@ std::vector<std::string>
 PathTrie::GetAllUniquePaths() const
 {
     std::vector<std::string> paths;
-    paths.reserve(kDepthReserve);
+    paths.reserve(kPathsReserve);
 
     std::string buffer;
-    buffer.reserve(kPathsReserve);
+    buffer.reserve(kPathLengthReserve);
 
     CollectPaths(root_.get(), buffer, paths);
 

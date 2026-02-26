@@ -5,10 +5,10 @@
 #ifndef PATHTRIE_ITERATOR_H_
 #define PATHTRIE_ITERATOR_H_
 
+#include <map>
 #include <memory>
 #include <stack>
 #include <string>
-#include <unordered_map>
 
 #include "pathtrie.h"
 
@@ -16,8 +16,8 @@ namespace pyftpkit {
 
 struct StackFrame {
     const TrieNode *node;
-    std::unordered_map<std::string, std::unique_ptr<TrieNode>>::const_iterator it;
-    std::unordered_map<std::string, std::unique_ptr<TrieNode>>::const_iterator end;
+    std::map<std::string, std::unique_ptr<TrieNode>>::const_iterator it;
+    std::map<std::string, std::unique_ptr<TrieNode>>::const_iterator end;
     std::string prefix;
 };
 
