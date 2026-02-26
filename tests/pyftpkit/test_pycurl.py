@@ -13,7 +13,37 @@ import pytest
 
 from pyftpkit._pycurl import PycURL, PycURLPoolManager
 from pyftpkit.connection_parameters import ConnectionParameters
-from pyftpkit.exceptions import FTPError
+from pyftpkit.exceptions import (
+    FTPError,
+    FTPPathError,
+    FTPPathNotAbsoluteError,
+)
+
+FILENAMES_WITH_SYMBOLS = [
+    " space-start.txt",
+    ".hidden.txt",
+    "ampersand&and.txt",
+    "at@home.txt",
+    "braces{0}.txt",
+    "brackets[0].txt",
+    "caret^caret.txt",
+    "comma,comma.txt",
+    "dollar$bill.txt",
+    "double  space.txt",
+    "double-space-end.txt  ",
+    "equals=.txt",
+    "exclaim!.txt",
+    "hash#tag.txt",
+    "paren(0).txt",
+    "percent%value.txt",
+    "plus+plus.txt",
+    "quote'.txt",
+    "semi;colon.txt",
+    "simple.txt",
+    "space-end.txt ",
+    "tilde~tilde.txt",
+    "with space.txt",
+]
 
 
 @pytest.fixture
@@ -72,6 +102,24 @@ def test_ensure_ftp_url_root_path(host, port, pycurl_instance):
     assert pycurl_instance._ensure_ftp_url("/") == f"ftp://{host!s}:{port!s}/"
 
 
+def test_ensure_ftp_url_collapses_leading_slashes(host, port, pycurl_instance):
+    url = "///1/2/3/test.txt"
+
+    assert (
+        pycurl_instance._ensure_ftp_url(url)
+        == f"ftp://{host!s}:{port!s}/1/2/3/test.txt"
+    )
+
+
+def test_ensure_ftp_url_preserves_trailing_whitespace(host, port, pycurl_instance):
+    url = "/1/2/3/test.txt  \t"
+
+    assert (
+        pycurl_instance._ensure_ftp_url(url)
+        == f"ftp://{host!s}:{port!s}/1/2/3/test.txt%20%20%09"
+    )
+
+
 def test_ensure_ftp_url_no_port(host, connection_parameters):
     connection_parameters.port = 0  # reset port
     curl = PycURL(connection_parameters=connection_parameters)
@@ -124,9 +172,9 @@ def test_download(
 
     src = "/1/2/3/text.txt"
 
-    dst_dir = pathlib.Path("/test")
-    dst_dir.mkdir()
-    dst = str(dst_dir / "text.txt")
+    dst = pathlib.Path("/test")
+    dst.mkdir()
+    dst = str(dst / "text.txt")
 
     size = 1024
     pycurl_mock.return_value.getinfo.return_value = size
@@ -172,7 +220,7 @@ def test_download(
 )
 def test_download_validation_type_errors(caplog, pycurl_instance, src, dst):
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(TypeError) as err:
+        with pytest.raises(FTPPathError) as err:
             pycurl_instance.download(src, dst)
 
     message = "The source and destination paths must both be strings."
@@ -200,7 +248,7 @@ def test_download_validation_type_errors(caplog, pycurl_instance, src, dst):
 )
 def test_download_validation_source_value_errors(caplog, pycurl_instance, src, dst):
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(ValueError) as err:
+        with pytest.raises(FTPPathError) as err:
             pycurl_instance.download(src, dst)
 
     message = "The source path cannot be empty or whitespace."
@@ -221,7 +269,7 @@ def test_download_validation_destination_value_errors(
     caplog, pycurl_instance, src, dst
 ):
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(ValueError) as err:
+        with pytest.raises(FTPPathError) as err:
             pycurl_instance.download(src, dst)
 
     message = "The destination path cannot be empty or whitespace."
@@ -235,7 +283,7 @@ def test_download_validation_no_root_slash(caplog, pycurl_instance):
     src = "src"
 
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError) as err:
+        with pytest.raises(FTPPathNotAbsoluteError) as err:
             pycurl_instance.download(src, "dst")
 
     message = "The source path is not absolute and does not start from the root."
@@ -243,6 +291,32 @@ def test_download_validation_no_root_slash(caplog, pycurl_instance):
 
     message = f"Ambiguous source path: {src!r}"
     assert message in str(err.value)
+
+
+def test_download_trailing_whitespace_preserves_remote_path(
+    fs_no_root, pycurl_mock, connection_parameters, host, port
+):
+    src = "/1/2/3/text.txt   "
+    dst = "text.txt"
+    url = f"ftp://{host!s}:{port!s}/1/2/3/text.txt%20%20%20"
+
+    curl = PycURL(connection_parameters=connection_parameters)
+    curl.download(src, dst)
+
+    pycurl_mock.return_value.setopt.assert_any_call(pycurl.URL, url)
+
+
+def test_download_trailing_tabs_preserves_remote_path(
+    fs_no_root, pycurl_mock, connection_parameters, host, port
+):
+    src = "/1/2/3/text.txt\t\t"
+    dst = "tabbed.txt"
+    url = f"ftp://{host!s}:{port!s}/1/2/3/text.txt%09%09"
+
+    curl = PycURL(connection_parameters=connection_parameters)
+    curl.download(src, dst)
+
+    pycurl_mock.return_value.setopt.assert_any_call(pycurl.URL, url)
 
 
 def test_download_with_error(
@@ -268,13 +342,31 @@ def test_download_with_error(
     assert message in str(err.value)
 
 
+def test_download_resets_write_function_on_error(
+    fs_no_root, connection_parameters, pycurl_mock
+):
+    curl = PycURL(connection_parameters=connection_parameters)
+
+    src = "/text.txt"
+    dst = pathlib.Path("text.txt")
+    dst.write_text("test", encoding="utf-8")
+
+    pycurl_mock.return_value.perform.side_effect = pycurl.error("error")
+
+    with pytest.raises(FTPError):
+        curl.download(src, str(dst))
+
+    last_call = pycurl_mock.return_value.setopt.call_args_list[-1]
+    assert last_call == mock.call(pycurl.WRITEFUNCTION, mock.ANY)
+
+
 def test_download_with_fs_error(caplog, fs_no_root, pycurl_instance, pycurl_mock):
     src = "/text.txt"
-    dst_dir = pathlib.Path("/test")
-    dst_dir.mkdir()
-    dst_path = dst_dir / "text.txt"
-    dst_path.mkdir()
-    dst = str(dst_path)
+    dst = pathlib.Path("/test")
+    dst.mkdir()
+    dst = dst / "text.txt"
+    dst.mkdir()
+    dst = str(dst)
 
     with caplog.at_level(logging.ERROR):
         with pytest.raises(RuntimeError) as err:
@@ -361,6 +453,28 @@ def test_upload_with_error(
     assert message in str(err.value)
 
 
+def test_upload_resets_transfer_options_on_error(
+    fs_no_root, connection_parameters, pycurl_mock
+):
+    curl = PycURL(connection_parameters=connection_parameters)
+
+    src = pathlib.Path("test.txt")
+    src.write_text("", encoding="utf-8")
+    dst = "/"
+
+    pycurl_mock.return_value.perform.side_effect = pycurl.error("error")
+
+    with pytest.raises(FTPError):
+        curl.upload(str(src), dst)
+
+    expected_tail = [
+        mock.call(pycurl.INFILESIZE, -1),
+        mock.call(pycurl.READFUNCTION, mock.ANY),
+        mock.call(pycurl.UPLOAD, 0),
+    ]
+    assert pycurl_mock.return_value.setopt.call_args_list[-3:] == expected_tail
+
+
 def test_upload_with_fs_error(caplog, fs_no_root, pycurl_mock, pycurl_instance):
     src = pathlib.Path("/test")
     src.mkdir()
@@ -386,7 +500,7 @@ def test_upload_with_fs_error(caplog, fs_no_root, pycurl_mock, pycurl_instance):
 )
 def test_upload_validation_type_errors(caplog, pycurl_instance, src, dst):
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(TypeError) as err:
+        with pytest.raises(FTPPathError) as err:
             pycurl_instance.upload(src, dst)
 
     message = "The source path and the destination path must each be a string."
@@ -414,7 +528,7 @@ def test_upload_validation_type_errors(caplog, pycurl_instance, src, dst):
 )
 def test_upload_validation_source_value_errors(caplog, pycurl_instance, src, dst):
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(ValueError) as err:
+        with pytest.raises(FTPPathError) as err:
             pycurl_instance.upload(src, dst)
 
     message = "A source path of only whitespace is invalid."
@@ -433,7 +547,7 @@ def test_upload_validation_source_value_errors(caplog, pycurl_instance, src, dst
 )
 def test_upload_validation_destination_value_errors(caplog, pycurl_instance, src, dst):
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(ValueError) as err:
+        with pytest.raises(FTPPathError) as err:
             pycurl_instance.upload(src, dst)
 
     message = "A destination path of only whitespace is invalid."
@@ -447,7 +561,7 @@ def test_upload_validation_no_root_slash(caplog, pycurl_instance):
     dst = "dst"
 
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError) as err:
+        with pytest.raises(FTPPathNotAbsoluteError) as err:
             pycurl_instance.upload("src", dst)
 
     message = "The destination path is not absolute and does not start from the root."
@@ -455,6 +569,36 @@ def test_upload_validation_no_root_slash(caplog, pycurl_instance):
 
     message = f"Ambiguous destination path: {dst!r}"
     assert message in str(err.value)
+
+
+def test_upload_trailing_whitespace_preserves_remote_path(
+    fs_no_root, pycurl_mock, connection_parameters, host, port
+):
+    src = pathlib.Path("upload.txt")
+    src.write_text("data", encoding="utf-8")
+    src = str(src)
+    dst = "/uploads/upload.txt   "
+    url = f"ftp://{host!s}:{port!s}/uploads/upload.txt%20%20%20"
+
+    curl = PycURL(connection_parameters=connection_parameters)
+    curl.upload(src, dst)
+
+    pycurl_mock.return_value.setopt.assert_any_call(pycurl.URL, url)
+
+
+def test_upload_trailing_tabs_preserves_remote_path(
+    fs_no_root, pycurl_mock, connection_parameters, host, port
+):
+    src = pathlib.Path("upload_tabs.txt")
+    src.write_text("data", encoding="utf-8")
+    src = str(src)
+    dst = "/uploads/upload_tabs.txt\t\t"
+    url = f"ftp://{host!s}:{port!s}/uploads/upload_tabs.txt%09%09"
+
+    curl = PycURL(connection_parameters=connection_parameters)
+    curl.upload(src, dst)
+
+    pycurl_mock.return_value.setopt.assert_any_call(pycurl.URL, url)
 
 
 def test_pool_manager_initialization(connection_parameters):
@@ -504,6 +648,24 @@ def test_pool_manager_close_queue_empty(pycurl_pool_manager, mocker):
     assert pycurl_pool_manager._shutdown is True
 
 
+def test_pool_manager_close_idempotent(pycurl_pool_manager):
+    curl_mocks = []
+
+    while not pycurl_pool_manager._pool.empty():
+        pycurl_pool_manager._pool.get()
+
+    for _ in range(pycurl_pool_manager._pool.maxsize):
+        curl_mock = mock.MagicMock()
+        curl_mocks.append(curl_mock)
+        pycurl_pool_manager._pool.put(curl_mock)
+
+    pycurl_pool_manager.close()
+    pycurl_pool_manager.close()
+
+    for curl_mock in curl_mocks:
+        curl_mock.close.assert_called_once()
+
+
 def test_pool_manager_acquire(pycurl_pool_manager):
     assert pycurl_pool_manager._pool.qsize() > 0
 
@@ -515,6 +677,49 @@ def test_pool_manager_acquire(pycurl_pool_manager):
 
     # Should be put back.
     assert pycurl_pool_manager._pool.qsize() == pycurl_pool_manager._pool.maxsize
+
+
+def test_pool_manager_acquire_closed_pool_raises(pycurl_pool_manager):
+    pycurl_pool_manager._shutdown = True
+
+    with pytest.raises(RuntimeError) as err:
+        with pycurl_pool_manager.acquire():
+            pass
+
+    message = "Cannot acquire from a closed pool."
+    assert message in str(err.value)
+
+
+def test_pool_manager_acquire_shutdown_while_waiting(pycurl_pool_manager, mocker):
+    def _get(*args, **kwargs):
+        pycurl_pool_manager._shutdown = True
+
+        raise queue.Empty
+
+    mocker.patch.object(pycurl_pool_manager._pool, "get", side_effect=_get)
+
+    with pytest.raises(RuntimeError) as err:
+        with pycurl_pool_manager.acquire():
+            pass
+
+    message = "Cannot acquire from a closed pool."
+    assert message in str(err.value)
+
+
+def test_pool_manager_acquire_retries_until_available(pycurl_pool_manager, mocker):
+    curl_mock = mocker.MagicMock()
+    get_mock = mocker.patch.object(
+        pycurl_pool_manager._pool,
+        "get",
+        side_effect=[queue.Empty, curl_mock],
+    )
+    put_mock = mocker.patch.object(pycurl_pool_manager._pool, "put")
+
+    with pycurl_pool_manager.acquire() as curl:
+        assert curl is curl_mock
+
+    assert get_mock.call_count == 2
+    put_mock.assert_called_once_with(curl_mock)
 
 
 def test_pool_manager_acquire_with_shutdown(pycurl_pool_manager, mocker):
@@ -567,6 +772,58 @@ def test_pool_manager_upload(pycurl_pool_manager, mocker):
     curl_mock.upload.assert_called_once_with(src, dst)
 
 
+def test_upload_special_symbol_files_to_ftp_server(
+    ftp_server, connection_parameters, tmp_path
+):
+    connection_parameters.host = ftp_server.host
+    connection_parameters.port = ftp_server.port
+
+    curl = PycURL(connection_parameters=connection_parameters)
+
+    files = {}
+    try:
+        for index, name in enumerate(FILENAMES_WITH_SYMBOLS):
+            content = f"content # {index!s}"
+            src = tmp_path / name
+            src.write_text(content, encoding="utf-8")
+            dst = "/" + name
+            files[dst] = content
+            curl.upload(str(src), dst)
+
+        for ftp_path, content in files.items():
+            server_path = pathlib.Path(ftp_server.home) / ftp_path.lstrip("/")
+            assert server_path.read_text(encoding="utf-8") == content
+    finally:
+        curl.close()
+
+
+def test_download_special_symbol_files_from_ftp_server(
+    ftp_server, connection_parameters, tmp_path
+):
+    connection_parameters.host = ftp_server.host
+    connection_parameters.port = ftp_server.port
+
+    curl = PycURL(connection_parameters=connection_parameters)
+
+    files = {}
+    try:
+        for index, name in enumerate(FILENAMES_WITH_SYMBOLS):
+            content = f"content # {index!s}"
+            ftp_path = "/" + name
+            files[ftp_path] = content
+            server_path = pathlib.Path(ftp_server.home) / ftp_path.lstrip("/")
+            server_path.write_text(content, encoding="utf-8")
+
+        for index, (ftp_path, content) in enumerate(files.items()):
+            path = tmp_path / f"download_{index!s}.txt"
+            size_bytes = curl.download(ftp_path, str(path))
+
+            assert size_bytes == len(content.encode("utf-8"))
+            assert path.read_text(encoding="utf-8") == content
+    finally:
+        curl.close()
+
+
 def test_upload_files_to_ftp_server(ftp_server, connection_parameters, tmp_path):
     connection_parameters.host = ftp_server.host
     connection_parameters.port = ftp_server.port
@@ -574,19 +831,20 @@ def test_upload_files_to_ftp_server(ftp_server, connection_parameters, tmp_path)
     curl = PycURL(connection_parameters=connection_parameters)
 
     files = {}
-    for index in range(10):
-        content = f"content # {index!s}"
-        src = tmp_path / f"{index!s}.txt"
-        src.write_text(content, encoding="utf-8")
-        dst = "/" + src.name
-        files[dst] = content
-        curl.upload(str(src), dst)
+    try:
+        for index in range(10):
+            content = f"content # {index!s}"
+            src = tmp_path / f"{index!s}.txt"
+            src.write_text(content, encoding="utf-8")
+            dst = "/" + src.name
+            files[dst] = content
+            curl.upload(str(src), dst)
 
-    for ftp_path, content in files.items():
-        server_path = pathlib.Path(ftp_server.home) / ftp_path.lstrip("/")
-        assert server_path.read_text(encoding="utf-8") == content
-
-    curl.close()
+        for ftp_path, content in files.items():
+            server_path = pathlib.Path(ftp_server.home) / ftp_path.lstrip("/")
+            assert server_path.read_text(encoding="utf-8") == content
+    finally:
+        curl.close()
 
 
 def test_download_files_from_ftp_server(ftp_server, connection_parameters, tmp_path):
@@ -596,22 +854,23 @@ def test_download_files_from_ftp_server(ftp_server, connection_parameters, tmp_p
     curl = PycURL(connection_parameters=connection_parameters)
 
     files = {}
-    for index in range(10):
-        content = f"content # {index!s}"
-        src = f"{index!s}.txt"
-        dst = "/" + src
-        files[dst] = content
-        server_path = pathlib.Path(ftp_server.home) / dst.lstrip("/")
-        server_path.write_text(content, encoding="utf-8")
+    try:
+        for index in range(10):
+            content = f"content # {index!s}"
+            src = f"{index!s}.txt"
+            dst = "/" + src
+            files[dst] = content
+            server_path = pathlib.Path(ftp_server.home) / dst.lstrip("/")
+            server_path.write_text(content, encoding="utf-8")
 
-    for ftp_path, content in files.items():
-        path = tmp_path / pathlib.PurePosixPath(ftp_path).name
-        size_bytes = curl.download(ftp_path, str(path))
+        for ftp_path, content in files.items():
+            path = tmp_path / pathlib.PurePosixPath(ftp_path).name
+            size_bytes = curl.download(ftp_path, str(path))
 
-        assert size_bytes == len(content.encode("utf-8"))
-        assert path.read_text(encoding="utf-8") == content
-
-    curl.close()
+            assert size_bytes == len(content.encode("utf-8"))
+            assert path.read_text(encoding="utf-8") == content
+    finally:
+        curl.close()
 
 
 def test_upload_download_rush_ftp_server(ftp_server, connection_parameters, tmp_path):
@@ -658,19 +917,20 @@ def test_pool_manager_upload_files_to_ftp_server(
     pool_manager = PycURLPoolManager(connection_parameters=connection_parameters)
 
     files = {}
-    for index in range(10):
-        content = f"content # {index!s}"
-        src = tmp_path / f"{index!s}.txt"
-        src.write_text(content, encoding="utf-8")
-        dst = "/" + src.name
-        files[dst] = content
-        pool_manager.upload(str(src), dst)
+    try:
+        for index in range(10):
+            content = f"content # {index!s}"
+            src = tmp_path / f"{index!s}.txt"
+            src.write_text(content, encoding="utf-8")
+            dst = "/" + src.name
+            files[dst] = content
+            pool_manager.upload(str(src), dst)
 
-    for ftp_path, content in files.items():
-        server_path = pathlib.Path(ftp_server.home) / ftp_path.lstrip("/")
-        assert server_path.read_text(encoding="utf-8") == content
-
-    pool_manager.close()
+        for ftp_path, content in files.items():
+            server_path = pathlib.Path(ftp_server.home) / ftp_path.lstrip("/")
+            assert server_path.read_text(encoding="utf-8") == content
+    finally:
+        pool_manager.close()
 
 
 def test_pool_manager_download_files_from_ftp_server(
@@ -682,17 +942,18 @@ def test_pool_manager_download_files_from_ftp_server(
     pool_manager = PycURLPoolManager(connection_parameters=connection_parameters)
 
     files = {}
-    for index in range(10):
-        content = f"content # {index!s}"
-        src = f"{index!s}.txt"
-        dst = "/" + src
-        files[dst] = content
-        server_path = pathlib.Path(ftp_server.home) / dst.lstrip("/")
-        server_path.write_text(content, encoding="utf-8")
+    try:
+        for index in range(10):
+            content = f"content # {index!s}"
+            src = f"{index!s}.txt"
+            dst = "/" + src
+            files[dst] = content
+            server_path = pathlib.Path(ftp_server.home) / dst.lstrip("/")
+            server_path.write_text(content, encoding="utf-8")
 
-    for ftp_path, content in files.items():
-        path = tmp_path / pathlib.PurePosixPath(ftp_path).name
-        pool_manager.download(ftp_path, str(path))
-        assert path.read_text(encoding="utf-8") == content
-
-    pool_manager.close()
+        for ftp_path, content in files.items():
+            path = tmp_path / pathlib.PurePosixPath(ftp_path).name
+            pool_manager.download(ftp_path, str(path))
+            assert path.read_text(encoding="utf-8") == content
+    finally:
+        pool_manager.close()

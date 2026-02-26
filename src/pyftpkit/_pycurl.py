@@ -14,7 +14,11 @@ import urllib.parse
 import pycurl
 
 from pyftpkit.connection_parameters import ConnectionParameters
-from pyftpkit.exceptions import FTPError
+from pyftpkit.exceptions import (
+    FTPError,
+    FTPPathError,
+    FTPPathNotAbsoluteError,
+)
 
 __all__ = ["PycURL", "PycURLPoolManager"]
 
@@ -64,8 +68,7 @@ class PycURL:
             return path
 
         # Ensure the path is consistently formatted and safely encoded for URL usage.
-        # Use a double slash at the root to indicate an absolute FTP path
-        # in compliance with RFC 1738.
+        # Keep exactly one leading slash when the path is absolute.
         if path.startswith(posixpath.sep):
             path = posixpath.sep + path.lstrip(posixpath.sep)
 
@@ -85,6 +88,8 @@ class PycURL:
         """Fetches a remote file and writes it to the local filesystem.
 
         Adds the FTP protocol prefix to the source path if missing.
+        Paths are treated verbatim, including trailing whitespace, which
+        is preserved and URL-encoded for remote paths.
 
         Parameters
         ----------
@@ -101,22 +106,22 @@ class PycURL:
 
         Raises
         ------
-        TypeError
-            If either the source or destination path is not a string.
+        FTPPathError
+            If either the source or destination path is not a string or
+            if the source or destination path is empty or contains only whitespace.
 
-        ValueError
-            If the source or destination path is empty or contains only whitespace.
+        FTPPathNotAbsoluteError
+            If the source path is ambiguous (not absolute).
 
         RuntimeError
-            If the source path is ambiguous (not absolute) or
-            if the destination directory cannot be created or written to.
+            If the destination directory cannot be created or written to.
 
         FTPError
             If any network or FTP-related issue occurs during download.
         """
         if not isinstance(src, str) or not isinstance(dst, str):
             logger.error("The source and destination paths must both be strings.")
-            raise TypeError(
+            raise FTPPathError(
                 "Source and destination paths are required to be strings."
                 "\nSource {0!r} has type: {1!s}"
                 "\nDestination {2!r} has type: {3!s}".format(
@@ -127,18 +132,15 @@ class PycURL:
                 )
             )
 
-        src = src.strip()
-        dst = dst.strip()
-
-        if not src:
+        if not src or not src.strip():
             logger.error("The source path cannot be empty or whitespace.")
-            raise ValueError(
+            raise FTPPathError(
                 "The source path must not be empty or consist only of whitespace."
             )
 
-        if not dst:
+        if not dst or not dst.strip():
             logger.error("The destination path cannot be empty or whitespace.")
-            raise ValueError(
+            raise FTPPathError(
                 "The destination path must not be empty or consist only of whitespace."
             )
 
@@ -146,7 +148,7 @@ class PycURL:
             logger.error(
                 "The source path is not absolute and does not start from the root."
             )
-            raise RuntimeError(f"Ambiguous source path: {src!r}")
+            raise FTPPathNotAbsoluteError(f"Ambiguous source path: {src!r}")
 
         src = posixpath.normpath(src)
         dst = os.path.normpath(os.path.expanduser(dst))
@@ -164,7 +166,7 @@ class PycURL:
 
         src = self._ensure_ftp_url(src)
         logger.debug(
-            "Starting FTP download of '%s' to '%s' on the local machine.", src, dst
+            "Starting FTP download of %r to %r on the local machine.", src, dst
         )
 
         try:
@@ -177,7 +179,7 @@ class PycURL:
                     float, self._curl.getinfo(pycurl.SIZE_DOWNLOAD)  # type: ignore
                 )
                 logger.debug(
-                    "Finished moving %d bytes from the FTP server '%s' to '%s'.",
+                    "Finished moving %d bytes from the FTP server %r to %r.",
                     size_bytes,
                     src,
                     dst,
@@ -210,7 +212,8 @@ class PycURL:
 
         Automatically converts the destination path to a full FTP URL and supports
         passive mode transfers. All missing directories must be created before
-        uploading to the remote server.
+        uploading to the remote server. Trailing whitespace is preserved and
+        URL-encoded for the remote destination path.
 
         Parameters
         ----------
@@ -222,15 +225,15 @@ class PycURL:
 
         Raises
         ------
-        TypeError
-            If either the source or destination path is not a string.
+        FTPPathError
+            If either the source or destination path is not a string or
+            if the source or destination path is empty or contains only whitespace.
 
-        ValueError
-            If the source or destination path is empty or contains only whitespace.
+        FTPPathNotAbsoluteError
+            If the destination path is ambiguous (not absolute).
 
         RuntimeError
-            If the destination path is ambiguous (not absolute) or
-            if reading the local file fails.
+            If reading the local file fails.
 
         FTPError
             If the FTP upload fails due to network or server-side issues.
@@ -239,7 +242,7 @@ class PycURL:
             logger.error(
                 "The source path and the destination path must each be a string."
             )
-            raise TypeError(
+            raise FTPPathError(
                 "Both the source and destination need to be strings."
                 "\nSource {0!r} has type: {1!s}"
                 "\nDestination {2!r} has type: {3!s}".format(
@@ -250,18 +253,15 @@ class PycURL:
                 )
             )
 
-        src = src.strip()
-        dst = dst.strip()
-
-        if not src:
+        if not src or not src.strip():
             logger.error("A source path of only whitespace is invalid.")
-            raise ValueError(
+            raise FTPPathError(
                 "The source path must include at least one non-whitespace character."
             )
 
-        if not dst:
+        if not dst or not dst.strip():
             logger.error("A destination path of only whitespace is invalid.")
-            raise ValueError(
+            raise FTPPathError(
                 "The destination path cannot be empty or contain only blank characters."
             )
 
@@ -269,14 +269,14 @@ class PycURL:
             logger.error(
                 "The destination path is not absolute and does not start from the root."
             )
-            raise RuntimeError(f"Ambiguous destination path: {dst!r}")
+            raise FTPPathNotAbsoluteError(f"Ambiguous destination path: {dst!r}")
 
         src = os.path.normpath(os.path.expanduser(src))
         dst = posixpath.normpath(dst)
 
         dst = self._ensure_ftp_url(dst)
         logger.debug(
-            "Uploading '%s' from local system to '%s' on the FTP server.", src, dst
+            "Uploading %r from local system to %r on the FTP server.", src, dst
         )
 
         try:
@@ -289,9 +289,7 @@ class PycURL:
             with io.open(src, mode="rb") as stream:
                 self._curl.setopt(pycurl.READFUNCTION, stream.read)
                 self._curl.perform()
-                logger.debug(
-                    "Finished uploading '%s' to '%s' on the FTP server.", src, dst
-                )
+                logger.debug("Finished uploading %r to %r on the FTP server.", src, dst)
         except pycurl.error as err:
             logger.exception("File could not be uploaded to the FTP server.")
             raise FTPError(
@@ -359,7 +357,20 @@ class PycURLPoolManager:
         PycURL
             A reusable instance for performing uploads or downloads.
         """
-        curl = self._pool.get()
+        if self._shutdown:
+            raise RuntimeError("Cannot acquire from a closed pool.")
+
+        # Avoid indefinite blocking if the pool is shut down while waiting.
+        while True:
+            if self._shutdown:
+                raise RuntimeError("Cannot acquire from a closed pool.")
+            try:
+                curl = self._pool.get(timeout=0.1)
+
+                break
+            except queue.Empty:
+                continue
+
         logger.debug("Acquired instance: %d", id(curl))
         try:
             yield curl
