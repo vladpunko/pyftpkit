@@ -54,7 +54,10 @@ def setup(level: str = "INFO", path: str | None = None) -> None:
                             "INFO": logging.INFO,
                             "DEBUG": logging.DEBUG,
                             "NOTSET": logging.NOTSET,
-                        }.get(os.environ.get("PYFTPKIT_LOGGER_LEVEL", level).upper()),
+                        }.get(
+                            os.environ.get("PYFTPKIT_LOGGER_LEVEL", level).upper(),
+                            logging.INFO,  # fallback if provided unknown value
+                        ),
                     ),
                 },
             },
