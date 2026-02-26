@@ -71,7 +71,7 @@ class FTPPoolExecutor:
         try:
             asyncio.get_running_loop()
         except RuntimeError as err:
-            logging.exception("No running event loop was detected.")
+            logger.exception("No running event loop was detected.")
             raise RuntimeError(
                 f"{type(self).__name__!s} requires an active event loop to open."
             ) from err

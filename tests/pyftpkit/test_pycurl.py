@@ -400,6 +400,7 @@ def test_upload(
         mock.call(pycurl.READFUNCTION, mock.ANY),
         mock.call(pycurl.INFILESIZE, -1),
         mock.call(pycurl.READFUNCTION, mock.ANY),
+        mock.call(pycurl.FTP_CREATE_MISSING_DIRS, 0),
         mock.call(pycurl.UPLOAD, 0),
     ]
     pycurl_mock.return_value.setopt.assert_has_calls(expected_calls, any_order=False)
@@ -444,9 +445,10 @@ def test_upload_resets_transfer_options_on_error(
     expected_tail = [
         mock.call(pycurl.INFILESIZE, -1),
         mock.call(pycurl.READFUNCTION, mock.ANY),
+        mock.call(pycurl.FTP_CREATE_MISSING_DIRS, 0),
         mock.call(pycurl.UPLOAD, 0),
     ]
-    assert pycurl_mock.return_value.setopt.call_args_list[-3:] == expected_tail
+    assert pycurl_mock.return_value.setopt.call_args_list[-4:] == expected_tail
 
 
 def test_upload_with_fs_error(caplog, fs_no_root, pycurl_mock, pycurl_instance):

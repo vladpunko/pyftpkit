@@ -306,6 +306,7 @@ class PycURL:
             # ready for the next request.
             self._curl.setopt(pycurl.INFILESIZE, -1)
             self._curl.setopt(pycurl.READFUNCTION, lambda x: b"")
+            self._curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 0)
             self._curl.setopt(pycurl.UPLOAD, 0)
 
 
