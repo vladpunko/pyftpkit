@@ -18,7 +18,7 @@ class ConnectionParameters(pydantic.BaseModel):
     """Connection parameters for establishing and managing FTP connections."""
 
     host: str
-    port: pydantic.NonNegativeInt = pydantic.Field(0, gt=0)  # no ports
+    port: pydantic.NonNegativeInt = 0  # no ports
     credentials: Credentials
     timeout: pydantic.NonNegativeInt = pydantic.Field(
         30, description="connection timeout in seconds"
