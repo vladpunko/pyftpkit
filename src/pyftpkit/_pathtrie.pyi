@@ -17,7 +17,9 @@ class PathTrieIterator:
 
 class PathTrie:
     def __iter__(self) -> typing.Iterator[str]:
-        """Returns all unique paths as a generator of strings."""
+        """Returns an iterator over all unique paths.
+
+        Do not mutate the trie while iterating."""
         ...
 
     def clear(self) -> None:

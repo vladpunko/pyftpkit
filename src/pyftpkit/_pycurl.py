@@ -88,8 +88,7 @@ class PycURL:
         """Fetches a remote file and writes it to the local filesystem.
 
         Adds the FTP protocol prefix to the source path if missing.
-        Paths are treated verbatim, including trailing whitespace, which
-        is preserved and URL-encoded for remote paths.
+        Trailing whitespace is preserved and URL-encoded for remote paths.
 
         Parameters
         ----------
@@ -211,9 +210,9 @@ class PycURL:
         """Uploads a local file to the remote FTP server.
 
         Automatically converts the destination path to a full FTP URL and supports
-        passive mode transfers. All missing directories must be created before
-        uploading to the remote server. Trailing whitespace is preserved and
-        URL-encoded for the remote destination path.
+        passive mode transfers. Missing directories are created automatically.
+        Trailing whitespace is preserved and URL-encoded for the remote
+        destination path.
 
         Parameters
         ----------

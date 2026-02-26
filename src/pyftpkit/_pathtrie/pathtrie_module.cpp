@@ -23,7 +23,7 @@ PYBIND11_MODULE(_pathtrie, m) {
             // The iterator maintains references to elements within the trie.
             // Modifying the trie during iteration results in undefined behavior.
             return pyftpkit::PathTrieIterator(self);
-        }, py::keep_alive<0, 1>(), "Returns all unique paths as a generator of strings. Do not mutate the trie while iterating.")
+        }, py::keep_alive<0, 1>(), "Returns an iterator over all unique paths. Do not mutate the trie while iterating.")
         .def("clear", &pyftpkit::PathTrie::Clear, "Clears the entire trie.")
         .def("insert", &pyftpkit::PathTrie::Insert, py::arg("path"), "Inserts a single path into a trie.")
         .def("get_all_unique_paths", &pyftpkit::PathTrie::GetAllUniquePaths, "Returns all unique paths as a list of strings.");
