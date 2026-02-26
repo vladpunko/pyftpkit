@@ -26,6 +26,13 @@ class ConnectionParameters(pydantic.BaseModel):
     max_connections: pydantic.NonNegativeInt = pydantic.Field(
         10, gt=0, description="maximum number of simultaneous connections"
     )
+    max_queue_size: pydantic.NonNegativeInt = pydantic.Field(
+        10000,
+        gt=0,
+        description=(
+            "bound queues so a slow consumer cannot cause unbounded memory usage"
+        ),
+    )
     max_workers: pydantic.NonNegativeInt = pydantic.Field(
         30, gt=0, description="maximum number of worker threads for parallel tasks"
     )

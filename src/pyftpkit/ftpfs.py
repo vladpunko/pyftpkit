@@ -3,7 +3,6 @@
 # Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
 
 # ruff: noqa: C901
-# reason: Several complex functions that need to remain unchanged in their current form.
 
 import asyncio
 import collections.abc
@@ -19,7 +18,11 @@ from pyftpkit._ftp import FTP
 from pyftpkit._pathtrie import PathTrie
 from pyftpkit._pool import FTPPoolExecutor
 from pyftpkit.connection_parameters import ConnectionParameters
-from pyftpkit.exceptions import FTPError
+from pyftpkit.exceptions import (
+    FTPError,
+    FTPPathError,
+    FTPPathNotAbsoluteError,
+)
 
 __all__ = ["FTPEntryType", "FTPFileSystem"]
 
@@ -39,9 +42,6 @@ class FTPFileSystem:
     """
 
     _SYMLINK_SEP: typing.Final[str] = " -> "
-
-    # Scales queue sizes by `max_workers` to limit memory use while keeping throughput.
-    _QUEUE_SCALE_FACTOR: typing.Final[int] = 256
 
     def __init__(
         self,
@@ -80,28 +80,26 @@ class FTPFileSystem:
 
         if not isinstance(path, str):
             logger.error("The remote path must be a string.")
-            raise TypeError(
+            raise FTPPathError(
                 "Only string values are permitted for the remote path."
                 "\nThe remote path {0!r} has type: {1!s}".format(
                     path, type(path).__name__
                 )
             )
 
-        path = path.strip()
-
-        if not path:
+        if not path or not path.strip():
             logger.error(
                 "The remote path must include at least one non-whitespace character."
             )
-            raise ValueError("The remote path must not be empty or whitespace.")
+            raise FTPPathError("The remote path must not be empty or whitespace.")
 
         if not path.startswith(posixpath.sep):
             logger.error(
                 "The remote path is not absolute and does not start from the root."
             )
-            raise RuntimeError(f"Ambiguous remote path: {path!r}")
+            raise FTPPathNotAbsoluteError(f"Ambiguous remote path: {path!r}")
 
-        logger.debug("Listing remote directory: %s", path)
+        logger.debug("Listing remote directory: %r", path)
 
         await loop.run_in_executor(
             self._pool.executor, ftp.cwd, posixpath.normpath(path)
@@ -161,13 +159,10 @@ class FTPFileSystem:
 
         Raises
         ------
-        ValueError
-            If the provided path is invalid.
+        FTPPathError
+            If the provided path is invalid or not a string.
 
-        TypeError
-            If the provided path is not a string.
-
-        RuntimeError
+        FTPPathNotAbsoluteError
             If the source path is not absolute and does not start from the root.
 
         FTPError
@@ -177,7 +172,7 @@ class FTPFileSystem:
             try:
                 async for entry in self._listdir(path, ftp=ftp):
                     yield entry
-            except (TypeError, ValueError, RuntimeError):
+            except (FTPPathError, FTPPathNotAbsoluteError):
                 raise
 
             except ftplib.all_errors as err:
@@ -219,6 +214,12 @@ class FTPFileSystem:
 
         Raises
         ------
+        FTPPathError
+            If the provided path is not a string or is empty/whitespace-only.
+
+        FTPPathNotAbsoluteError
+            If the path is not absolute.
+
         RuntimeError
             If an FTP worker encounters a critical error. The original exception
             is attached as the cause.
@@ -231,44 +232,34 @@ class FTPFileSystem:
         """
         if not isinstance(path, str):
             logger.error("The remote path must be a string.")
-            raise TypeError(
+            raise FTPPathError(
                 "Only string values are permitted for the remote path."
                 "\nThe remote path {0!r} has type: {1!s}".format(
                     path, type(path).__name__
                 )
             )
 
-        path = path.strip()
-
-        if not path:
+        if not path or not path.strip():
             logger.error(
                 "The remote path must include at least one non-whitespace character."
             )
-            raise ValueError("The remote path must not be empty or whitespace.")
+            raise FTPPathError("The remote path must not be empty or whitespace.")
 
         if not path.startswith(posixpath.sep):
             logger.error(
                 "The remote path is not absolute and does not start from the root."
             )
-            raise RuntimeError(f"Ambiguous remote path: {path!r}")
+            raise FTPPathNotAbsoluteError(f"Ambiguous remote path: {path!r}")
 
         stop_event = asyncio.Event()
 
         queue: asyncio.Queue[str] = asyncio.Queue(
-            maxsize=max(
-                1, self._connection_parameters.max_workers * self._QUEUE_SCALE_FACTOR
-            )
+            maxsize=max(1, self._connection_parameters.max_queue_size)
         )
         await queue.put(posixpath.normpath(path))
 
         output_queue: asyncio.Queue[tuple[str, FTPEntryType, str] | Exception] = (
-            # Bound the queue so a slow consumer cannot cause unbounded memory usage.
-            asyncio.Queue(
-                maxsize=max(
-                    1,
-                    self._connection_parameters.max_workers * self._QUEUE_SCALE_FACTOR,
-                )
-            )
+            asyncio.Queue(maxsize=max(1, self._connection_parameters.max_queue_size))
         )
 
         async def _worker() -> None:
@@ -282,7 +273,7 @@ class FTPFileSystem:
                 while True:
                     try:
                         dirpath = await queue.get()
-                        logger.debug("Processing directory from queue: %s", dirpath)
+                        logger.debug("Processing directory from queue: %r", dirpath)
                     except asyncio.CancelledError:
                         break
 
@@ -312,7 +303,13 @@ class FTPFileSystem:
                     if stop_event.is_set():
                         break
             finally:
-                await self._pool.release(ftp)
+                try:
+                    await asyncio.shield(self._pool.release(ftp))
+                except asyncio.CancelledError:
+                    # Ensure release is not interrupted by cancellation.
+                    await asyncio.shield(self._pool.release(ftp))
+
+                    raise
 
         # Spawn worker tasks.
         workers = [
@@ -409,28 +406,26 @@ class FTPFileSystem:
             for path in paths:
                 if not isinstance(path, str):
                     logger.error("The path must be provided as a string value.")
-                    raise TypeError(
+                    raise FTPPathError(
                         "The path must be defined using string data."
                         "\nThe path {0!r} has type: {1!s}".format(
                             path, type(path).__name__
                         )
                     )
 
-                path = path.strip()
-
-                if not path:
+                if not path or not path.strip():
                     logger.error(
                         "The path must contain at least one non-blank character."
                     )
-                    raise ValueError("The path cannot be blank or whitespace-only.")
+                    raise FTPPathError("The path cannot be blank or whitespace-only.")
 
                 if not path.startswith(posixpath.sep):
                     logger.error(
                         "The path is relative rather than starting at the root."
                     )
-                    raise RuntimeError(f"Ambiguous path: {path!r}")
+                    raise FTPPathNotAbsoluteError(f"Ambiguous path: {path!r}")
 
-                # Parse path using the suffix-tree.
+                # Parse path using the trie.
                 pathtrie.insert(posixpath.normpath(path))
 
             for dirpath in pathtrie:
@@ -447,13 +442,13 @@ class FTPFileSystem:
                         ) from err
 
                     try:
-                        logger.debug("Creating a new directory: %s", dirpath)
+                        logger.debug("Creating a new directory: %r", dirpath)
                         # Attempt to create the required directory.
                         await loop.run_in_executor(
                             self._pool.executor, ftp.mkd, dirpath
                         )
                         logger.debug(
-                            "Successfully created a new remote directory: %s", dirpath
+                            "Successfully created a new remote directory: %r", dirpath
                         )
                     except ftplib.error_perm as err:
                         # This accommodates servers that block `MKD` for existing
@@ -499,14 +494,11 @@ class FTPFileSystem:
 
         Raises
         ------
-        ValueError
-            If the provided path is invalid.
+        FTPPathError
+            If the path is invalid or empty.
 
-        TypeError
-            If the provided path is not a string.
-
-        RuntimeError
-            If the source path is not absolute and does not start from the root.
+        FTPPathNotAbsoluteError
+            If the path is not absolute and does not start from the root.
 
         FTPError
             If any directory cannot be created due to permission or FTP errors.
@@ -523,14 +515,14 @@ class FTPFileSystem:
 
         Raises
         ------
-        TypeError
-            If the provided path is not a string.
+        FTPPathError
+            If the provided path is not a string or is empty or whitespace-only.
+
+        FTPPathNotAbsoluteError
+            If the path is not absolute.
 
         ValueError
-            If the path is empty, whitespace-only, or resolves to the root.
-
-        RuntimeError
-            If the path is not absolute.
+            If the path resolves to the root directory.
 
         FTPError
             If the FTP server refuses the deletion or an unexpected FTP error occurs.
@@ -539,18 +531,16 @@ class FTPFileSystem:
 
         if not isinstance(path, str):
             logger.error("The remote path cannot be of any type other than string.")
-            raise TypeError(
+            raise FTPPathError(
                 "The remote path must consist of string data."
                 "\nThe remote path {0!r} has type: {1!s}".format(
                     path, type(path).__name__
                 )
             )
 
-        path = path.strip()
-
-        if not path:
+        if not path or not path.strip():
             logger.error("The remote path cannot consist entirely of spaces or tabs.")
-            raise ValueError(
+            raise FTPPathError(
                 "The remote path must contain at least one non-blank character."
             )
 
@@ -558,7 +548,7 @@ class FTPFileSystem:
             logger.error(
                 "The remote path must be absolute and start from the root directory."
             )
-            raise RuntimeError(f"Ambiguous remote path: {path!r}")
+            raise FTPPathNotAbsoluteError(f"Ambiguous remote path: {path!r}")
 
         if path == posixpath.sep:
             logger.error("Attempting to remove the root directory is disallowed.")
@@ -568,11 +558,11 @@ class FTPFileSystem:
 
         async with self._pool.acquire() as ftp:
             try:
-                logger.debug("Attempting to delete: %s", path)
+                logger.debug("Attempting to delete: %r", path)
                 await loop.run_in_executor(
                     self._pool.executor, ftp.delete, posixpath.normpath(path)
                 )
-                logger.debug("File deletion succeeded: %s", path)
+                logger.debug("File deletion succeeded: %r", path)
             except ftplib.all_errors as err:
                 logger.exception(
                     "Could not delete file due to an unexpected FTP server response."
@@ -585,22 +575,19 @@ class FTPFileSystem:
         Parameters
         ----------
         path : str
-            The absolute path to the root directory on the FTP server to remove.
+            Absolute path to the directory tree root on the FTP server to remove.
 
         Raises
         ------
-        TypeError
-            If the provided path is not a string.
+        FTPPathError
+            If the provided path is not a string or is empty or whitespace-only.
 
-        ValueError
-            If the path is empty, whitespace-only, or resolves to the root.
-
-        RuntimeError
+        FTPPathNotAbsoluteError
             If the path is not absolute.
 
         FTPError
-            Occurs if deletion of any file or directory fails due to FTP-related
-            errors or access restrictions.
+            Raised when the FTP server returns an error while processing directory
+            entries or when a directory listing cannot be parsed.
 
         Notes
         -----
@@ -614,20 +601,18 @@ class FTPFileSystem:
 
         if not isinstance(path, str):
             logger.error("The remote path cannot be of any type other than string.")
-            raise TypeError(
+            raise FTPPathError(
                 "The remote path must consist of string data."
                 "\nThe remote path {0!r} has type: {1!s}".format(
                     path, type(path).__name__
                 )
             )
 
-        path = path.strip()
-
-        if not path:
+        if not path or not path.strip():
             logger.error(
                 "The remote path cannot be empty or consist solely of whitespace."
             )
-            raise ValueError(
+            raise FTPPathError(
                 "The remote path cannot consist entirely of spaces or tabs."
             )
 
@@ -635,7 +620,7 @@ class FTPFileSystem:
             logger.error(
                 "The remote path must be absolute and start from the root directory."
             )
-            raise RuntimeError(f"Ambiguous remote path: {path!r}")
+            raise FTPPathNotAbsoluteError(f"Ambiguous remote path: {path!r}")
 
         stack: list[tuple[str, bool]] = [(posixpath.normpath(path), False)]
         async with self._pool.acquire() as ftp:
@@ -647,11 +632,11 @@ class FTPFileSystem:
                         continue
 
                     try:
-                        logger.debug("Attempting to remove: %s", dirpath)
+                        logger.debug("Attempting to remove: %r", dirpath)
                         await loop.run_in_executor(
                             self._pool.executor, ftp.rmd, dirpath
                         )
-                        logger.debug("Remote directory has been removed: %s", dirpath)
+                        logger.debug("Remote directory has been removed: %r", dirpath)
                     except ftplib.all_errors as err:
                         logger.exception("The directory could not be removed.")
                         raise FTPError(
@@ -669,32 +654,21 @@ class FTPFileSystem:
 
                             continue
 
-                        try:
-                            logger.debug("Attempting to remove: %s", entry_path)
-                            await loop.run_in_executor(
-                                self._pool.executor, ftp.delete, entry_path
-                            )
-                            logger.debug("File has been removed: %s", entry_path)
-                        except ftplib.all_errors as err:
-                            logger.exception("File deletion could not be completed.")
-                            raise RuntimeError(
-                                f"The system failed to remove the file: {entry_path!r}"
-                            ) from err
-                except RuntimeError:
-                    raise
-
+                        logger.debug("Attempting to remove: %r", entry_path)
+                        await loop.run_in_executor(
+                            self._pool.executor, ftp.delete, entry_path
+                        )
+                        logger.debug("File has been removed: %r", entry_path)
                 except ftplib.all_errors as err:
                     logger.exception(
-                        "The directory listing failed due to an FTP server error."
+                        "An FTP error occurred while processing directory entries."
                     )
                     raise FTPError(
-                        f"Failed to list this directory: {dirpath!r}"
+                        f"Failed to process directory entries for: {dirpath!r}"
                     ) from err
 
                 except Exception as err:
                     logger.exception(
-                        "Directory listing parsing failed for the FTP server response."
+                        "An unexpected issue arose during directory entry processing."
                     )
-                    raise FTPError(
-                        f"Failed to parse directory listing for: {dirpath!r}"
-                    ) from err
+                    raise FTPError(f"Unable to process directory: {dirpath!r}") from err
