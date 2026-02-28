@@ -1,6 +1,7 @@
 // -*- coding: utf-8 -*-
 
-// Copyright 2025 (c) Vladislav Punko <iam.vlad.punko@gmail.com>
+// Created by: Vladislav Punko <iam.vlad.punko@gmail.com>
+// Created date: 2025-10-05
 
 #ifndef PATHTRIE_ITERATOR_H_
 #define PATHTRIE_ITERATOR_H_
