@@ -47,7 +47,7 @@ class FTPFileSystem:
     # Use a regular expression instead of naive string splitting to ensure
     # robust parsing of `LIST` output.
     _LIST_ENTRY_REGEX: typing.Final[re.Pattern[str]] = re.compile(
-        r"^(?P<perms>.{10})\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(?P<name>.*)$"
+        r"^(?P<perms>.{10})\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s(?P<name>.*)$"
     )
 
     def __init__(
@@ -140,6 +140,7 @@ class FTPFileSystem:
                 try:
                     name, _ = name.split(self._SYMLINK_SEP, maxsplit=1)
                 except ValueError:
+                    logger.debug("Skipping bad symlink: %r", entry)
                     continue
 
             abspath = posixpath.join(path, name)

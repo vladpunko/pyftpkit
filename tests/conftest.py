@@ -44,6 +44,7 @@ def password():
 @pytest.fixture
 def filenames_with_symbols():
     return [
+        "   spaces.txt",
         " space-start.txt",
         ".hidden.txt",
         "ampersand&and.txt",

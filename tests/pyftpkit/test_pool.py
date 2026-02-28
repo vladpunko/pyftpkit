@@ -397,6 +397,27 @@ async def test_close_does_not_shutdown_external_executor(mocker, connection_para
 
 
 @pytest.mark.asyncio
+async def test_close_shuts_down_owned_executor(mocker, connection_parameters):
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+    pool._lock = asyncio.Lock()
+    pool._pool = asyncio.Queue()
+    pool._closed = False
+
+    shutdown_mock = mocker.patch.object(
+        pool._executor, "shutdown", wraps=pool._executor.shutdown
+    )
+    to_thread_mock = mocker.AsyncMock(
+        side_effect=lambda func, *args, **kwargs: func(*args, **kwargs)
+    )
+    mocker.patch("asyncio.to_thread", to_thread_mock)
+
+    await pool.close()
+
+    to_thread_mock.assert_called_once()
+    shutdown_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_close_logs_close_errors(mocker, caplog, connection_parameters):
     pool = FTPPoolExecutor(connection_parameters=connection_parameters)
     pool._lock = asyncio.Lock()

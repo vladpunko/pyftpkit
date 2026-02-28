@@ -451,19 +451,28 @@ def test_upload_resets_transfer_options_on_error(
     assert pycurl_mock.return_value.setopt.call_args_list[-4:] == expected_tail
 
 
-def test_upload_with_fs_error(caplog, fs_no_root, pycurl_mock, pycurl_instance):
-    src = pathlib.Path("/test")
-    src.mkdir()
-    dst = "/"
+@pytest.mark.parametrize(
+    "src, dst, prepare",
+    [
+        ("/missing.txt", "/upload.txt", None),
+        ("/test", "/", "mkdir"),
+    ],
+)
+def test_upload_with_fs_error(
+    caplog, fs_no_root, pycurl_mock, pycurl_instance, src, dst, prepare
+):
+    src_path = pathlib.Path(src)
+    if prepare == "mkdir":
+        src_path.mkdir()
 
     with caplog.at_level(logging.ERROR):
         with pytest.raises(RuntimeError) as err:
-            pycurl_instance.upload(str(src), dst)
+            pycurl_instance.upload(str(src_path), dst)
 
     message = "File read operation failed on local system."
     assert message in caplog.text
 
-    message = f"An error occurred while accessing the local file: {str(src)!r}."
+    message = f"An error occurred while accessing the local file: {str(src_path)!r}."
     assert message in str(err.value)
 
 
@@ -708,6 +717,16 @@ def test_pool_manager_acquire_with_shutdown(pycurl_pool_manager, mocker):
 
     close_mock.assert_called_once()
     assert pycurl_pool_manager._pool.qsize() == 0
+
+
+def test_pool_manager_acquire_returns_on_exception(pycurl_pool_manager):
+    initial_size = pycurl_pool_manager._pool.qsize()
+
+    with pytest.raises(ValueError):
+        with pycurl_pool_manager.acquire():
+            raise ValueError("error")
+
+    assert pycurl_pool_manager._pool.qsize() == initial_size
 
 
 def test_pool_manager_download(pycurl_pool_manager, mocker):
