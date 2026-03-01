@@ -185,6 +185,25 @@ async def test_trailing_suffix_on_file_source_raises(
 
 
 @pytest.mark.asyncio
+async def test_destination_wildcard_raises(fs_without_root, caplog, upload_resolver):
+    source_path = pathlib.Path("/data/a.txt")
+    source_path.parent.mkdir()
+    source_path.write_text("")
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError) as error:
+            await _drain_async_iterator(
+                upload_resolver.resolve(str(source_path), "output/*")
+            )
+
+    message = "Destination must not include a wildcard."
+    assert message in caplog.text
+
+    message = "Destination must not include a wildcard: {0!r}".format("output")
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
 async def test_many_sources_to_one_destination(fs_without_root, upload_resolver):
     root_directory = pathlib.Path("/data")
     root_directory.mkdir()

@@ -251,6 +251,12 @@ class UploadResolver(Resolver):
         src_path = Path.parse(src)
         dst_path = Path.parse(dst)
 
+        if dst_path.has_wildcard:
+            logger.error("Destination must not include a wildcard.")
+            raise RuntimeError(
+                "Destination must not include a wildcard: {0!r}".format(dst_path.path)
+            )
+
         if not os.path.exists(src_path.path):
             logger.error("Source does not exist.")
             raise RuntimeError(
