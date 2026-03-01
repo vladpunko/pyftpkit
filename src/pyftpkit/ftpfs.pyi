@@ -12,8 +12,8 @@ from pyftpkit.connection_parameters import ConnectionParameters
 __all__: list[str] = ["FTPEntryType", "FTPFileSystem"]
 
 class FTPEntryType(int, enum.Enum):
-    DIRECTORY: typing.Final[int]
-    FILE: typing.Final[int]
+    DIRECTORY: int
+    FILE: int
 
 class FTPFileSystem:
     def __init__(
