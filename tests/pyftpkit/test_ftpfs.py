@@ -459,7 +459,7 @@ async def test_walk_queue_full_does_not_hang(fs_no_root, mocker, connection_para
     def queue_factory(*args, **kwargs):
         return QueueWrapper(*args, **kwargs)
 
-    async def _listdir(*_args, **_kwargs):
+    async def _listdir(*args, **kwargs):
         raise RuntimeError("error")
         yield
 
@@ -960,7 +960,7 @@ async def test_rmtree_trailing_whitespace(
 async def test_rmtree_file_delete_error_wrapped(
     fs_no_root, caplog, connection_parameters, mocker
 ):
-    async def _listdir(_self, path, _ftp=None, **_kwargs):
+    async def _listdir(_self, path, _ftp=None, **kwargs):
         yield (FTPEntryType.FILE, f"{path}/file.txt")
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
@@ -1007,7 +1007,7 @@ async def test_rmtree_dir_remove_error_wrapped(
 async def test_rmtree_unexpected_error_wrapped(
     fs_no_root, caplog, connection_parameters, mocker
 ):
-    async def _listdir(*_args, **_kwargs):
+    async def _listdir(*args, **kwargs):
         raise KeyError("error")
         yield
 
