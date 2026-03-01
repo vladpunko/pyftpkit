@@ -4,8 +4,8 @@
 # Created date: 2026-02-28
 
 import logging
-import os
 import pathlib
+import posixpath
 
 import pytest
 
@@ -17,7 +17,7 @@ from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.ftpfs import FTPEntryType
 
 
-async def _drain_async_for(generator):
+async def _drain_async_iterator(generator):
     items = []
     async for item in generator:
         items.append(item)
@@ -42,140 +42,159 @@ def connection_parameters(ftp_server, username, password):
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_is_file(fs_no_root):
-    src = pathlib.Path("/a.txt")
-    src.write_text("")
-    dst = "/b.txt"
+async def test_local_tree_expander_is_file(fs_without_root):
+    source_path = pathlib.Path("/a.txt")
+    source_path.write_text("")
+    destination_path = "/b.txt"
 
     expander = LocalTreeExpander()
 
-    assert await _drain_async_for(expander.expand(str(src), dst)) == [(str(src), dst)]
+    assert await _drain_async_iterator(
+        expander.expand(str(source_path), destination_path)
+    ) == [(str(source_path), destination_path)]
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_missing_src_raises(fs_no_root, caplog):
+async def test_local_tree_expander_missing_source_raises(fs_without_root, caplog):
     expander = LocalTreeExpander()
 
-    path = "/missing"
+    source_path = "/missing"
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError) as err:
-            await _drain_async_for(expander.expand(path, "/dst"))
+        with pytest.raises(RuntimeError) as error:
+            await _drain_async_iterator(expander.expand(source_path, "/dst"))
 
     message = "Source does not exist."
     assert message in caplog.text
 
-    message = f"The source path provided is invalid or cannot be found: {path!r}"
-    assert message in str(err.value)
+    message = "The source path provided is invalid or cannot be found: {0!r}".format(
+        source_path
+    )
+    assert message in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_symlink_src_raises(fs_no_root, caplog):
-    target = pathlib.Path("/target.txt")
-    target.write_text("")
-    src = pathlib.Path("/link.txt")
-    src.symlink_to(target)
+async def test_local_tree_expander_symlink_source_raises(fs_without_root, caplog):
+    target_path = pathlib.Path("/target.txt")
+    target_path.write_text("")
+    source_path = pathlib.Path("/link.txt")
+    source_path.symlink_to(target_path)
 
     expander = LocalTreeExpander()
 
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError) as err:
-            await _drain_async_for(expander.expand(str(src), "/dst"))
+        with pytest.raises(RuntimeError) as error:
+            await _drain_async_iterator(expander.expand(str(source_path), "/dst"))
 
     message = "Unsupported source type."
     assert message in caplog.text
 
-    message = f"Source points to a symlink and cannot be processed: {str(src)!r}"
-    assert message in str(err.value)
+    message = "Source points to a symlink and cannot be processed: {0!r}".format(
+        str(source_path)
+    )
+    assert message in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_directory_skips_symlinks(fs_no_root):
-    src = pathlib.Path("/root")
-    src.mkdir()
-    (src / "subdir").mkdir()
+async def test_local_tree_expander_directory_skips_symlinks(fs_without_root):
+    source_directory = pathlib.Path("/root")
+    source_directory.mkdir()
+    subdirectory_path = source_directory / "subdir"
+    subdirectory_path.mkdir()
 
-    a_path = src / "a.txt"
-    a_path.write_text("")
-    b_path = src / "subdir" / "b.txt"
-    b_path.write_text("")
+    root_file_path = source_directory / "a.txt"
+    root_file_path.write_text("")
+    subdirectory_file_path = subdirectory_path / "b.txt"
+    subdirectory_file_path.write_text("")
 
-    (src / "symlink.txt").symlink_to(a_path)
+    (source_directory / "symlink.txt").symlink_to(root_file_path)
 
     expander = LocalTreeExpander()
 
-    dst = "/dst"
-    pairs = await _drain_async_for(expander.expand(str(src), dst))
+    destination_root = "/dst"
+    expanded_pairs = await _drain_async_iterator(
+        expander.expand(str(source_directory), destination_root)
+    )
 
-    expected = {
-        (str(a_path), os.path.join(dst, "a.txt")),
-        (str(b_path), os.path.join(dst, "subdir", "b.txt")),
+    expected_pairs = {
+        (str(root_file_path), posixpath.join(destination_root, "a.txt")),
+        (
+            str(subdirectory_file_path),
+            posixpath.join(destination_root, "subdir", "b.txt"),
+        ),
     }
-    assert set(pairs) == expected
+    assert set(expanded_pairs) == expected_pairs
 
 
 @pytest.mark.asyncio
 async def test_remote_expander_file_short_circuit(
-    fs_no_root, connection_parameters, mocker
+    fs_without_root, connection_parameters, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters)
 
-    async def _listdir(self, path):
+    async def _list_directory(self, path):
         yield (FTPEntryType.FILE, "/a.txt")
         yield (FTPEntryType.FILE, "/b.txt")
 
     mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir",
-        new=_listdir,
+        new=_list_directory,
     )
     walk_mock = mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk")
 
-    pairs = await _drain_async_for(expander.expand("/a.txt", "/dst.txt"))
+    expanded_pairs = await _drain_async_iterator(expander.expand("/a.txt", "/dst.txt"))
 
-    assert pairs == [("/a.txt", "/dst.txt")]
+    assert expanded_pairs == [("/a.txt", "/dst.txt")]
     walk_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_remote_expander_directory_walk(
-    fs_no_root, ftp_server, connection_parameters
+    fs_without_root, ftp_server, connection_parameters
 ):
-    home = pathlib.Path(ftp_server.home)
-    root = pathlib.Path(ftp_server.root)
-    src_dir = home / "data"
-    src_dir.mkdir()
-    (src_dir / "a.txt").write_text("")
-    (src_dir / "subdir").mkdir()
-    (src_dir / "subdir" / "b.txt").write_text("")
+    home_path = pathlib.Path(ftp_server.home)
+    root_path = pathlib.Path(ftp_server.root)
+    source_directory = home_path / "data"
+    source_directory.mkdir()
+    (source_directory / "a.txt").write_text("")
+    (source_directory / "subdir").mkdir()
+    (source_directory / "subdir" / "b.txt").write_text("")
 
     expander = RemoteFTPExpander(connection_parameters)
 
-    pairs = await _drain_async_for(expander.expand(str(root / "data"), "/dst"))
+    expanded_pairs = await _drain_async_iterator(
+        expander.expand(str(root_path / "data"), "/dst")
+    )
 
-    expected = {
-        (str(root / "data" / "a.txt"), os.path.join("/dst", "a.txt")),
+    expected_pairs = {
+        (str(root_path / "data" / "a.txt"), posixpath.join("/dst", "a.txt")),
         (
-            str(root / "data" / "subdir" / "b.txt"),
-            os.path.join("/dst", "subdir", "b.txt"),
+            str(root_path / "data" / "subdir" / "b.txt"),
+            posixpath.join("/dst", "subdir", "b.txt"),
         ),
     }
-    assert set(pairs) == expected
+    assert set(expanded_pairs) == expected_pairs
 
 
 @pytest.mark.asyncio
-async def test_remote_expander_root(fs_no_root, ftp_server, connection_parameters):
-    home = pathlib.Path(ftp_server.home)
-    root = pathlib.Path(ftp_server.root)
-    (home / "root.txt").write_text("")
+async def test_remote_expander_root(fs_without_root, ftp_server, connection_parameters):
+    home_path = pathlib.Path(ftp_server.home)
+    root_path = pathlib.Path(ftp_server.root)
+    (home_path / "root.txt").write_text("")
 
     expander = RemoteFTPExpander(connection_parameters)
 
-    pairs = await _drain_async_for(expander.expand(str(root), "/dst"))
+    expanded_pairs = await _drain_async_iterator(
+        expander.expand(str(root_path), "/dst")
+    )
 
-    assert (str(root / "root.txt"), os.path.join("/dst", "root.txt")) in set(pairs)
+    assert (
+        str(root_path / "root.txt"),
+        posixpath.join("/dst", "root.txt"),
+    ) in set(expanded_pairs)
 
 
 @pytest.mark.asyncio
-async def test_remote_expander_skips_listdir_when_no_name(
+async def test_remote_expander_skips_list_directory_when_no_name(
     ftp_server, connection_parameters, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters)
@@ -187,56 +206,56 @@ async def test_remote_expander_skips_listdir_when_no_name(
     async def _walk(*args, **kwargs):
         yield ("", FTPEntryType.FILE, "/data/file.txt")
 
-    listdir_mock = mocker.patch(
+    list_directory_mock = mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir"
     )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
-    pairs = await _drain_async_for(expander.expand("/data", "/dst"))
+    expanded_pairs = await _drain_async_iterator(expander.expand("/data", "/dst"))
 
-    assert pairs == [("/data/file.txt", os.path.join("/dst", "file.txt"))]
-    listdir_mock.assert_not_called()
+    assert expanded_pairs == [("/data/file.txt", posixpath.join("/dst", "file.txt"))]
+    list_directory_mock.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_remote_expander_listdir_target_is_directory(
+async def test_remote_expander_list_directory_target_is_directory(
     ftp_server, connection_parameters, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters)
 
-    async def _listdir(*args, **kwargs):
+    async def _list_directory(*args, **kwargs):
         yield (FTPEntryType.DIRECTORY, "/data")
 
     async def _walk(*args, **kwargs):
         yield ("", FTPEntryType.FILE, "/data/file.txt")
 
     mocker.patch(
-        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_listdir
+        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
     )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
-    pairs = await _drain_async_for(expander.expand("/data", "/dst"))
+    expanded_pairs = await _drain_async_iterator(expander.expand("/data", "/dst"))
 
-    assert pairs == [("/data/file.txt", os.path.join("/dst", "file.txt"))]
+    assert expanded_pairs == [("/data/file.txt", posixpath.join("/dst", "file.txt"))]
 
 
 @pytest.mark.asyncio
-async def test_remote_expander_listdir_skips_non_matching_entries(
+async def test_remote_expander_list_directory_skips_non_matching_entries(
     ftp_server, connection_parameters, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters)
 
-    async def _listdir(*args, **kwargs):
+    async def _list_directory(*args, **kwargs):
         yield (FTPEntryType.FILE, "/other")
 
     async def _walk(*args, **kwargs):
         yield ("", FTPEntryType.FILE, "/data/file.txt")
 
     mocker.patch(
-        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_listdir
+        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
     )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
-    pairs = await _drain_async_for(expander.expand("/data", "/dst"))
+    expanded_pairs = await _drain_async_iterator(expander.expand("/data", "/dst"))
 
-    assert pairs == [("/data/file.txt", os.path.join("/dst", "file.txt"))]
+    assert expanded_pairs == [("/data/file.txt", posixpath.join("/dst", "file.txt"))]

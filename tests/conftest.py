@@ -17,7 +17,7 @@ from pyftpdlib.servers import ThreadedFTPServer
 
 
 @pytest.fixture
-def fs_no_root():
+def fs_without_root():
     with fake_filesystem_unittest.Patcher(allow_root_user=False) as patcher:
         yield patcher.fs
 

@@ -11,13 +11,13 @@ from pyftpkit._ftp import _BUFFER_SIZE, FTP
 
 
 def test_connect_sets_socket_options(host, port):
-    ftp = FTP()
+    ftp_client = FTP()
 
     with mock.patch("pyftpkit._ftp.ftplib.FTP.connect", return_value="welcome"):
         socket_mock = mock.MagicMock()
-        ftp.sock = socket_mock
+        ftp_client.sock = socket_mock
 
-        message = ftp.connect(host, port)
+        message = ftp_client.connect(host, port)
         assert message == "welcome"
 
         expected_calls = [
@@ -31,13 +31,13 @@ def test_connect_sets_socket_options(host, port):
 
 
 def test_connect_skips_socket_options_without_socket(host, port):
-    ftp = FTP()
+    ftp_client = FTP()
 
     with mock.patch("pyftpkit._ftp.ftplib.FTP.connect", return_value="welcome"):
         with mock.patch("pyftpkit._ftp._set_socket_options") as set_options_mock:
-            ftp.sock = None
+            ftp_client.sock = None
 
-            message = ftp.connect(host, port)
+            message = ftp_client.connect(host, port)
 
     assert message == "welcome"
     set_options_mock.assert_not_called()

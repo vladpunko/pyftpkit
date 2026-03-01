@@ -39,7 +39,7 @@ def test_parse_root_keeps_slash():
 
 
 def test_parse_cache_identity():
-    a = Path.parse("/cache")
-    b = Path.parse("/cache")
+    first_parse = Path.parse("/cache")
+    second_parse = Path.parse("/cache")
 
-    assert a is b
+    assert first_parse is second_parse
