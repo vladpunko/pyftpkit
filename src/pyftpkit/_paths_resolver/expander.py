@@ -4,6 +4,7 @@
 # Created date: 2026-02-28
 
 import abc
+import logging
 import os
 import posixpath
 import typing
@@ -16,6 +17,8 @@ from pyftpkit.ftpfs import (
 )
 
 __all__ = ["Expander", "LocalTreeExpander", "RemoteFTPExpander"]
+
+logger = logging.getLogger("pyftpkit")
 
 
 class Expander(abc.ABC, metaclass=abc.ABCMeta):
@@ -57,9 +60,28 @@ class LocalTreeExpander(Expander):
         ------
         tuple[str, str]
             Pairs indicating the origin and destination for every file.
+
+        Raises
+        ------
+        RuntimeError
+            If the source does not exist or is a symlink.
         """
+        if not os.path.exists(src):
+            logger.error("Source does not exist.")
+            raise RuntimeError(
+                "The source path provided is invalid or cannot be found: {0!r}".format(
+                    src
+                )
+            )
+
+        if os.path.islink(src):
+            logger.error("Unsupported source type.")
+            raise RuntimeError(
+                "Source points to a symlink and cannot be processed: {0!r}".format(src)
+            )
+
         # Short-circuit on single files to avoid walking a non-directory.
-        if os.path.isfile(src) and not os.path.islink(src):
+        if os.path.isfile(src):
             yield src, dst
 
             return

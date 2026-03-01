@@ -3,6 +3,7 @@
 # Created by: Vladislav Punko <iam.vlad.punko@gmail.com>
 # Created date: 2026-02-28
 
+import logging
 import os
 import pathlib
 
@@ -49,6 +50,42 @@ async def test_local_tree_expander_is_file(fs_no_root):
     expander = LocalTreeExpander()
 
     assert await _drain_async_for(expander.expand(str(src), dst)) == [(str(src), dst)]
+
+
+@pytest.mark.asyncio
+async def test_local_tree_expander_missing_src_raises(fs_no_root, caplog):
+    expander = LocalTreeExpander()
+
+    path = "/missing"
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError) as err:
+            await _drain_async_for(expander.expand(path, "/dst"))
+
+    message = "Source does not exist."
+    assert message in caplog.text
+
+    message = f"The source path provided is invalid or cannot be found: {path!r}"
+    assert message in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_local_tree_expander_symlink_src_raises(fs_no_root, caplog):
+    target = pathlib.Path("/target.txt")
+    target.write_text("")
+    src = pathlib.Path("/link.txt")
+    src.symlink_to(target)
+
+    expander = LocalTreeExpander()
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError) as err:
+            await _drain_async_for(expander.expand(str(src), "/dst"))
+
+    message = "Unsupported source type."
+    assert message in caplog.text
+
+    message = f"Source points to a symlink and cannot be processed: {str(src)!r}"
+    assert message in str(err.value)
 
 
 @pytest.mark.asyncio

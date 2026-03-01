@@ -14,6 +14,14 @@ def test_parse_has_wildcard():
     assert parsed.has_slash is False
 
 
+def test_parse_root_wildcard():
+    parsed = Path.parse("/*")
+
+    assert parsed.path == "/"
+    assert parsed.has_wildcard is True
+    assert parsed.has_slash is True
+
+
 def test_parse_has_slash():
     parsed = Path.parse("/a/b/")
 

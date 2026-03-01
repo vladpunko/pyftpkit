@@ -26,6 +26,8 @@ class Path:
         has_wildcard = path.endswith("/*")
         if has_wildcard:
             path = path[:-2]
+            if not path:
+                path = posixpath.sep
 
         has_slash = path.endswith("/")
 
