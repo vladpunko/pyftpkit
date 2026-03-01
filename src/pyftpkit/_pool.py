@@ -314,6 +314,9 @@ class FTPPoolExecutor:
 
     def _close_connection(self, ftp: FTP) -> None:
         """Safely closes a single FTP connection."""
+        if getattr(ftp, "sock", None) is None:
+            return None
+
         try:
             ftp.quit()
         except ftplib.all_errors:

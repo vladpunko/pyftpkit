@@ -289,6 +289,20 @@ def test_close_connection_with_exceptions(
     assert message in str(error.value)
 
 
+def test_close_connection_with_closed_socket(mocker, ftp_server, connection_parameters):
+    ftp_connection = mocker.Mock()
+    ftp_connection.sock = None
+
+    connection_parameters.host = ftp_server.host
+    connection_parameters.port = ftp_server.port
+    pool = FTPPoolExecutor(connection_parameters=connection_parameters)
+
+    pool._close_connection(ftp_connection)
+
+    ftp_connection.quit.assert_not_called()
+    ftp_connection.close.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_close_no_pool(caplog, connection_parameters):
     pool = FTPPoolExecutor(connection_parameters=connection_parameters)

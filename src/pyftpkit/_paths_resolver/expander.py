@@ -4,6 +4,7 @@
 # Created date: 2026-02-28
 
 import abc
+import contextlib
 import logging
 import os
 import posixpath
@@ -149,16 +150,20 @@ class RemoteFTPExpander(Expander):
 
                 if name := posixpath.basename(src):
                     target_path = posixpath.join(dirname, name)
-                    async for entry_type, entry_path in ftpfs.listdir(dirname):
-                        if entry_path != target_path:
-                            continue
+                    # Ensure the generator is closed before the FTP pool shuts down.
+                    async with contextlib.aclosing(
+                        ftpfs.listdir(dirname)
+                    ) as entries_iterator:
+                        async for entry_type, entry_path in entries_iterator:
+                            if entry_path != target_path:
+                                continue
 
-                        if entry_type == FTPEntryType.FILE:
-                            yield src, dst
+                            if entry_type == FTPEntryType.FILE:
+                                yield src, dst
 
-                            return
+                                return
 
-                        break
+                            break
 
             async for _, entry_type, entry_path in ftpfs.walk(src):
                 if entry_type != FTPEntryType.FILE:
