@@ -89,11 +89,11 @@ class LocalTreeExpander(Expander):
 
         for rootpath, _, nondirs in os.walk(src):
             for path in nondirs:
-                src_path = os.path.join(rootpath, path)
+                src_path = posixpath.join(rootpath, path)
                 if os.path.islink(src_path) or not os.path.isfile(src_path):
                     continue
 
-                dst_path = os.path.join(
+                dst_path = posixpath.join(
                     dst,
                     os.path.relpath(src_path, src),
                 )
@@ -169,7 +169,7 @@ class RemoteFTPExpander(Expander):
                 if entry_type != FTPEntryType.FILE:
                     continue
 
-                dst_path = os.path.join(
+                dst_path = posixpath.join(
                     dst,
                     posixpath.relpath(entry_path, src),
                 )

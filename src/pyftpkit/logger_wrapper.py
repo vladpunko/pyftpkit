@@ -6,6 +6,7 @@
 import logging
 import logging.config
 import os
+import posixpath
 import tempfile
 import typing
 
@@ -31,7 +32,7 @@ def setup(level: str = "INFO", path: str | None = None) -> None:
                         (
                             path
                             if path is not None
-                            else os.path.join(tempfile.gettempdir(), "pyftpkit.log")
+                            else posixpath.join(tempfile.gettempdir(), "pyftpkit.log")
                         ),
                     ),
                     "mode": "at",
