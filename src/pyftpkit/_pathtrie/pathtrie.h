@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace pyftpkit {
@@ -17,9 +18,11 @@ struct TrieNode {
     std::map<std::string, std::unique_ptr<TrieNode>> children;
 };
 
-// Use the forward declaration for this class and declare it as a friend of the
+// Use a forward declaration for these classes and declare them as a friend of the
 // class containing the trie to encapsulate and hide as many attributes as possible.
 class PathTrieIterator;
+class PathTrieIteratorPostOrder;
+class PathTrieIteratorPreOrder;
 
 class PathTrie {
 public:
@@ -32,9 +35,11 @@ public:
 private:
     std::unique_ptr<TrieNode> root_;
 
-    static constexpr char kUnixSep = '/';
+    static constexpr const char *kUnixCurDir = ".";
+    static constexpr const char *kUnixParDir = "..";
+    static constexpr const char *kUnixSep = "/";
     static constexpr size_t kPathLengthReserve = 1 << 12;  // estimated average path length (chars)
-    static constexpr size_t kPathsReserve = 1 << 12;       // expected number of unique paths
+    static constexpr size_t kPathsReserve = 1 << 12;  // expected number of unique paths
 
     void CollectPaths(const TrieNode *node,
                       std::string &buffer,
@@ -43,6 +48,8 @@ private:
     static std::vector<std::string_view> SplitPath(const std::string &str, const char &sep);
 
     friend class PathTrieIterator;
+    friend class PathTrieIteratorPostOrder;
+    friend class PathTrieIteratorPreOrder;
 };
 
 } // namespace pyftpkit

@@ -15,7 +15,7 @@
 
 namespace pyftpkit {
 
-struct StackFrame {
+struct PathTrieStackFrame {
     const TrieNode *node;
     std::map<std::string, std::unique_ptr<TrieNode>>::const_iterator it;
     std::map<std::string, std::unique_ptr<TrieNode>>::const_iterator end;
@@ -24,13 +24,12 @@ struct StackFrame {
 
 class PathTrieIterator {
 public:
-    explicit PathTrieIterator(const PathTrie &trie);
+    virtual ~PathTrieIterator() = default;
+    virtual PathTrieIterator &Iter();
+    virtual std::string Next() = 0;
 
-    PathTrieIterator &Iter();
-    std::string Next();
-
-private:
-    std::stack<StackFrame> stack_;
+protected:
+    std::stack<PathTrieStackFrame> stack_;
 
     std::string JoinPath(const std::string &prefix, const std::string &path_part) const;
     void PushFrame(const TrieNode *node, const std::string &prefix);

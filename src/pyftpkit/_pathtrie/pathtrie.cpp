@@ -38,13 +38,13 @@ PathTrie::Insert(const std::string &path)
 
     TrieNode *node = root_.get();
 
-    static const std::string sep(1, kUnixSep);
-    if (path.front() == kUnixSep) {
+    static const std::string sep(kUnixSep);
+    if (path.front() == *kUnixSep) {
         node = InsertPath(node, sep);
     }
 
-    for (const auto &part : SplitPath(path, kUnixSep)) {
-        if (part.empty() || part == "." || part == "..") {
+    for (const auto &part : SplitPath(path, *kUnixSep)) {
+        if (part.empty() || part == kUnixCurDir || part == kUnixParDir) {
             continue;
         }
         node = InsertPath(node, std::string(part));
@@ -99,8 +99,8 @@ PathTrie::CollectPaths(const TrieNode *node,
     for (const auto &[name, child] : node->children) {
         size_t size = buffer.size();
 
-        if (!buffer.empty() && buffer.back() != kUnixSep) {
-            buffer.push_back(kUnixSep);
+        if (!buffer.empty() && buffer.back() != *kUnixSep) {
+            buffer.push_back(*kUnixSep);
         }
         buffer.append(name);
 

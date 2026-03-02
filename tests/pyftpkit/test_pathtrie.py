@@ -30,6 +30,7 @@ from pyftpkit._pathtrie import PathTrie
         (["/a", "/a/b"], ["/", "/a", "/a/b"]),
         (["/a/./b"], ["/", "/a", "/a/b"]),
         (["/a/b", "/c"], ["/", "/a", "/a/b", "/c"]),
+        (["/a b/c d"], ["/", "/a b", "/a b/c d"]),
         (["/а/б/в"], ["/", "/а", "/а/б", "/а/б/в"]),
         (["/漢字/テスト"], ["/", "/漢字", "/漢字/テスト"]),
         (["a//b"], ["a", "a/b"]),
@@ -53,6 +54,45 @@ def test_iter_deterministic_order():
     trie.insert("/c")
 
     assert list(trie) == ["/", "/a", "/a/1", "/b", "/b/2", "/c"]
+
+
+def test_reverse_iter_deterministic_order():
+    trie = PathTrie()
+    trie.insert("/b/2")
+    trie.insert("/a/1")
+    trie.insert("/c")
+
+    assert list(reversed(trie)) == ["/a/1", "/a", "/b/2", "/b", "/c", "/"]
+
+
+def test_reverse_iter_relative_paths():
+    trie = PathTrie()
+    trie.insert("a/b")
+    trie.insert("a/c")
+
+    assert list(reversed(trie)) == ["a/b", "a/c", "a"]
+
+
+def test_reverse_iter_mixed_absolute_and_relative_paths():
+    trie = PathTrie()
+    trie.insert("/a/b")
+    trie.insert("a/b")
+    trie.insert("/c")
+
+    assert list(reversed(trie)) == ["/a/b", "/a", "/c", "/", "a/b", "a"]
+
+
+def test_reverse_iter_empty_trie():
+    trie = PathTrie()
+
+    assert list(reversed(trie)) == []
+
+
+def test_reverse_iter_root_only():
+    trie = PathTrie()
+    trie.insert("/")
+
+    assert list(reversed(trie)) == ["/"]
 
 
 def test_get_all_unique_paths_deterministic_order():
@@ -98,6 +138,37 @@ def test_long_paths_do_not_leak_memory():
             trie.insert(path)
 
         trie.get_all_unique_paths()
+        trie.clear()
+        gc.collect()
+
+    current_snapshot = tracemalloc.take_snapshot()
+
+    memory_difference = current_snapshot.compare_to(
+        baseline_snapshot, key_type="lineno"
+    )
+    tracemalloc.stop()
+
+    total_growth = sum(stat.size_diff for stat in memory_difference)
+    assert total_growth < 5 * 1024 * 1024  # 5MB
+
+
+def test_long_paths_iterators_do_not_leak_memory():
+    tracemalloc.start()
+    baseline_snapshot = tracemalloc.take_snapshot()
+
+    for cycle in range(3):
+        trie = PathTrie()
+        for index in range(500_000):
+            path = posixpath.join(
+                "/",
+                "start" * 20,
+                "{0:02d}-{1:04d}".format(cycle, index),
+                "end" * 20,
+            )
+            trie.insert(path)
+
+        list(trie)
+        list(reversed(trie))
         trie.clear()
         gc.collect()
 

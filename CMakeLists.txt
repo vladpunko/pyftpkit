@@ -12,6 +12,8 @@ find_package(pybind11 CONFIG REQUIRED)
 
 pybind11_add_module(${MODULE_NAME}
     src/${PACKAGE_NAME}/_pathtrie/pathtrie_iterator.cpp
+    src/${PACKAGE_NAME}/_pathtrie/pathtrie_iterator_preorder.cpp
+    src/${PACKAGE_NAME}/_pathtrie/pathtrie_iterator_postorder.cpp
     src/${PACKAGE_NAME}/_pathtrie/pathtrie_module.cpp
     src/${PACKAGE_NAME}/_pathtrie/pathtrie.cpp
 )
