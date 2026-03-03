@@ -38,6 +38,14 @@ def test_parse_root_keeps_slash():
     assert parsed.has_wildcard is False
 
 
+def test_parse_root_collapse_from_only_separators():
+    parsed = Path.parse("////")
+
+    assert parsed.path == "/"
+    assert parsed.has_slash is True
+    assert parsed.has_wildcard is False
+
+
 def test_parse_cache_identity():
     first_parse = Path.parse("/cache")
     second_parse = Path.parse("/cache")
