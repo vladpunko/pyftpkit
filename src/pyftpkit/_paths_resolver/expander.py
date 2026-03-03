@@ -65,8 +65,31 @@ class LocalTreeExpander(Expander):
         Raises
         ------
         RuntimeError
+            If the source does not exist, is a symlink, ends with a separator while
+            pointing to a file, or if a walk yields a path outside the requested root.
+
+        FTPPathError
+            If the remote source path is invalid or contains prohibited traversal
+            segments.
+
+        FTPPathNotAbsoluteError
+            If the remote source path is not absolute.
+
+        Raises
+        ------
+        RuntimeError
             If the source does not exist or is a symlink.
         """
+        if src.endswith(os.path.sep):
+            trimmed_src = src.rstrip(os.path.sep)
+            if trimmed_src and os.path.isfile(trimmed_src):
+                logger.error("Source path ends with a separator but points to a file.")
+                raise RuntimeError(
+                    "File path includes an invalid trailing separator: {0!r}".format(
+                        src
+                    )
+                )
+
         if not os.path.exists(src):
             logger.error("Source does not exist.")
             raise RuntimeError(
@@ -137,11 +160,24 @@ class RemoteFTPExpander(Expander):
         ------
         tuple[str, str]
             Pairs indicating the origin and destination for every file.
+
+        Raises
+        ------
+        RuntimeError
+            If a walk yields a path outside the requested root directory.
+
+        FTPPathError
+            If the remote source path is invalid or contains prohibited traversal
+            segments.
+
+        FTPPathNotAbsoluteError
+            If the remote source path is not absolute.
         """
         async with FTPFileSystem(
             connection_parameters=self._connections_parameters,
             executor=self._executor,
         ) as ftpfs:
+            root_prefix = src if src.endswith(posixpath.sep) else src + posixpath.sep
             # Attempt a parent directory lookup to catch a direct file match
             # and avoid walking the tree.
             if src != posixpath.sep:
@@ -167,6 +203,16 @@ class RemoteFTPExpander(Expander):
             async for _, entry_type, entry_path in ftpfs.walk(src):
                 if entry_type != FTPEntryType.FILE:
                     continue
+
+                if not entry_path.startswith(root_prefix):
+                    logger.error(
+                        "Walk yielded a path outside the requested source directory."
+                    )
+                    raise RuntimeError(
+                        "Walk yielded a path outside the requested root: {0!r}".format(
+                            entry_path
+                        )
+                    )
 
                 dst_path = posixpath.join(
                     dst,
