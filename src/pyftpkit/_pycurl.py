@@ -58,7 +58,7 @@ class PycURL:
         Parameters
         ----------
         path : str
-            The FTP path to normalize and convert into a URL.
+            The FTP path to convert into a URL.
 
         Returns
         -------
@@ -73,13 +73,14 @@ class PycURL:
         if path.startswith(posixpath.sep):
             path = posixpath.sep + path.lstrip(posixpath.sep)
 
-        normpath = urllib.parse.quote(path, safe=posixpath.sep)
+        # Encode the path for URL usage.
+        encoded_path = urllib.parse.quote(path, safe=posixpath.sep)
 
         host = self._connection_parameters.host
         port = self._connection_parameters.port
         netloc = f"{host!s}:{port!s}" if port and port > 0 else host
 
-        return urllib.parse.urlunparse(("ftp", netloc, normpath, "", "", ""))
+        return urllib.parse.urlunparse(("ftp", netloc, encoded_path, "", "", ""))
 
     def close(self) -> None:
         """Releases all resources."""
@@ -150,8 +151,7 @@ class PycURL:
             )
             raise FTPPathNotAbsoluteError(f"Ambiguous source path: {src!r}")
 
-        src = posixpath.normpath(src)
-        dst = os.path.normpath(os.path.expanduser(dst))
+        dst = os.path.expanduser(dst)
 
         if dirname := os.path.dirname(dst):
             try:
@@ -271,8 +271,7 @@ class PycURL:
             )
             raise FTPPathNotAbsoluteError(f"Ambiguous destination path: {dst!r}")
 
-        src = os.path.normpath(os.path.expanduser(src))
-        dst = posixpath.normpath(dst)
+        src = os.path.expanduser(src)
 
         dst = self._ensure_ftp_url(dst)
         logger.debug(
