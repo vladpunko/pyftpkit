@@ -13,7 +13,7 @@ __all__ = ["Path"]
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Path:
-    """Immutable normalized path descriptor."""
+    """Immutable path descriptor."""
 
     path: str
     has_slash: bool
@@ -22,7 +22,7 @@ class Path:
     @classmethod
     @functools.lru_cache(maxsize=io.DEFAULT_BUFFER_SIZE)
     def parse(cls: type["Path"], path: str) -> "Path":
-        """Converts an unprocessed path string into a normalized path instance."""
+        """Converts an unprocessed path string into a parsed path instance."""
         has_wildcard = path.endswith("/*")
         if has_wildcard:
             path = path[:-2]
@@ -31,10 +31,11 @@ class Path:
 
         has_slash = path.endswith("/")
 
-        path = posixpath.normpath(path)
         # Keep root as "/" instead of empty.
         if path != posixpath.sep:
             path = path.rstrip(posixpath.sep)
+            if not path:
+                path = posixpath.sep
 
         return cls(
             path=path,
