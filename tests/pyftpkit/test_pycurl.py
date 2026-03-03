@@ -700,7 +700,6 @@ def test_pool_manager_acquire(pycurl_pool_manager):
             pycurl_pool_manager._pool.qsize() == pycurl_pool_manager._pool.maxsize - 1
         )
 
-        # Should be put back.
     assert pycurl_pool_manager._pool.qsize() == pycurl_pool_manager._pool.maxsize
 
 

@@ -186,7 +186,7 @@ class RemoteFTPExpander(Expander):
                 if name := posixpath.basename(src):
                     target_path = posixpath.join(dirname, name)
                     # Ensure the generator is closed before the FTP pool shuts down.
-                    async with contextlib.aclosing(
+                    async with contextlib.aclosing(  # type: ignore
                         ftpfs.listdir(dirname)
                     ) as entries_iterator:
                         async for entry_type, entry_path in entries_iterator:

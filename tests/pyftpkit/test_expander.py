@@ -78,7 +78,7 @@ def ftpfs_no_connect(mocker):
 @pytest.mark.asyncio
 async def test_local_tree_expander_is_file(fs_without_root):
     source_path = pathlib.Path("/a.txt")
-    source_path.write_text("")
+    source_path.write_text("", encoding="utf-8")
     destination_path = "/b.txt"
 
     expander = LocalTreeExpander()
@@ -109,7 +109,7 @@ async def test_local_tree_expander_missing_source_raises(fs_without_root, caplog
 @pytest.mark.asyncio
 async def test_local_tree_expander_symlink_source_raises(fs_without_root, caplog):
     target_path = pathlib.Path("/target.txt")
-    target_path.write_text("")
+    target_path.write_text("", encoding="utf-8")
     source_path = pathlib.Path("/link.txt")
     source_path.symlink_to(target_path)
 
@@ -136,9 +136,9 @@ async def test_local_tree_expander_directory_skips_symlinks(fs_without_root):
     subdirectory_path.mkdir()
 
     root_file_path = source_directory / "a.txt"
-    root_file_path.write_text("")
+    root_file_path.write_text("", encoding="utf-8")
     subdirectory_file_path = subdirectory_path / "b.txt"
-    subdirectory_file_path.write_text("")
+    subdirectory_file_path.write_text("", encoding="utf-8")
 
     (source_directory / "symlink.txt").symlink_to(root_file_path)
 
@@ -164,7 +164,7 @@ async def test_local_tree_expander_file_with_trailing_slash_raises(
     fs_without_root, caplog
 ):
     source_path = pathlib.Path("/a.txt")
-    source_path.write_text("")
+    source_path.write_text("", encoding="utf-8")
 
     expander = LocalTreeExpander()
 
@@ -211,9 +211,9 @@ async def test_remote_expander_directory_walk(
     root_path = pathlib.Path(ftp_server.root)
     source_directory = home_path / "data"
     source_directory.mkdir()
-    (source_directory / "a.txt").write_text("")
+    (source_directory / "a.txt").write_text("", encoding="utf-8")
     (source_directory / "subdir").mkdir()
-    (source_directory / "subdir" / "b.txt").write_text("")
+    (source_directory / "subdir" / "b.txt").write_text("", encoding="utf-8")
 
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
@@ -235,7 +235,7 @@ async def test_remote_expander_directory_walk(
 async def test_remote_expander_root(fs_without_root, ftp_server, connection_parameters):
     home_path = pathlib.Path(ftp_server.home)
     root_path = pathlib.Path(ftp_server.root)
-    (home_path / "root.txt").write_text("")
+    (home_path / "root.txt").write_text("", encoding="utf-8")
 
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
@@ -256,7 +256,7 @@ async def test_remote_expander_root_skips_list_directory(
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
     source_directory.mkdir()
-    (source_directory / "file.txt").write_text("")
+    (source_directory / "file.txt").write_text("", encoding="utf-8")
 
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
@@ -303,7 +303,7 @@ async def test_remote_expander_trailing_slash_uses_walk(
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
     source_directory.mkdir()
-    (source_directory / "file.txt").write_text("")
+    (source_directory / "file.txt").write_text("", encoding="utf-8")
 
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
@@ -323,7 +323,7 @@ async def test_remote_expander_list_directory_target_is_directory(
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
     source_directory.mkdir()
-    (source_directory / "file.txt").write_text("")
+    (source_directory / "file.txt").write_text("", encoding="utf-8")
 
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
@@ -343,10 +343,10 @@ async def test_remote_expander_walk_filters_directories(
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
     source_directory.mkdir()
-    (source_directory / "file.txt").write_text("")
+    (source_directory / "file.txt").write_text("", encoding="utf-8")
     nested_directory = source_directory / "subdir"
     nested_directory.mkdir()
-    (nested_directory / "nested.txt").write_text("")
+    (nested_directory / "nested.txt").write_text("", encoding="utf-8")
 
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
@@ -529,7 +529,7 @@ async def test_local_tree_expander_trailing_slash(fs_without_root):
     source_directory = pathlib.Path("/root")
     source_directory.mkdir()
     file_path = source_directory / "a.txt"
-    file_path.write_text("")
+    file_path.write_text("", encoding="utf-8")
 
     expander = LocalTreeExpander()
 
