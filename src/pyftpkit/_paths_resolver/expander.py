@@ -142,7 +142,6 @@ class RemoteFTPExpander(Expander):
             connection_parameters=self._connections_parameters,
             executor=self._executor,
         ) as ftpfs:
-            src = posixpath.normpath(src)
             # Attempt a parent directory lookup to catch a direct file match
             # and avoid walking the tree.
             if src != posixpath.sep:
