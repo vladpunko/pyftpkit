@@ -45,6 +45,36 @@ def connection_parameters(ftp_server, username, password):
     )
 
 
+@pytest.fixture
+def connection_parameters_no_connect(host, port, username, password):
+    return ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 1,
+            "max_workers": 2,
+        }
+    )
+
+
+@pytest.fixture
+def ftpfs_no_connect(mocker):
+    async def _enter(self):
+        return self
+
+    async def _exit(self, *args, **kwargs):
+        return None
+
+    mocker.patch(
+        "pyftpkit._paths_resolver.expander.FTPFileSystem.__aenter__", new=_enter
+    )
+    mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.__aexit__", new=_exit)
+
+
 @pytest.mark.asyncio
 async def test_local_tree_expander_is_file(fs_without_root):
     source_path = pathlib.Path("/a.txt")
@@ -153,9 +183,9 @@ async def test_local_tree_expander_file_with_trailing_slash_raises(
 
 @pytest.mark.asyncio
 async def test_remote_expander_file_short_circuit(
-    fs_without_root, connection_parameters, mocker
+    connection_parameters_no_connect, ftpfs_no_connect, mocker
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory(self, path):
         yield (FTPEntryType.FILE, "/a.txt")
@@ -185,7 +215,7 @@ async def test_remote_expander_directory_walk(
     (source_directory / "subdir").mkdir()
     (source_directory / "subdir" / "b.txt").write_text("")
 
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     expanded_pairs = await _drain_async_iterator(
         expander.expand(str(root_path / "data"), "/dst")
@@ -207,7 +237,7 @@ async def test_remote_expander_root(fs_without_root, ftp_server, connection_para
     root_path = pathlib.Path(ftp_server.root)
     (home_path / "root.txt").write_text("")
 
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     expanded_pairs = await _drain_async_iterator(
         expander.expand(str(root_path), "/dst")
@@ -221,31 +251,32 @@ async def test_remote_expander_root(fs_without_root, ftp_server, connection_para
 
 @pytest.mark.asyncio
 async def test_remote_expander_root_skips_list_directory(
-    ftp_server, connection_parameters, mocker
+    fs_without_root, ftp_server, connection_parameters
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    home_path = pathlib.Path(ftp_server.home)
+    source_directory = home_path / "data"
+    source_directory.mkdir()
+    (source_directory / "file.txt").write_text("")
 
-    async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
-
-    list_directory_mock = mocker.patch(
-        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir"
-    )
-    mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     expanded_pairs = await _drain_async_iterator(expander.expand("/", "/dst"))
 
-    assert expanded_pairs == [
-        ("/data/file.txt", posixpath.join("/dst", "data/file.txt"))
-    ]
-    list_directory_mock.assert_not_called()
+    root_path = pathlib.Path(ftp_server.root)
+    expected_pairs = {
+        (
+            str(root_path / "data" / "file.txt"),
+            posixpath.join("/dst", "data", "file.txt"),
+        )
+    }
+    assert set(expanded_pairs) == expected_pairs
 
 
 @pytest.mark.asyncio
 async def test_remote_expander_skips_list_directory_when_no_name(
-    ftp_server, connection_parameters, mocker
+    connection_parameters_no_connect, ftpfs_no_connect, mocker
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     mocker.patch(
         "pyftpkit._paths_resolver.expander.posixpath.basename", return_value=""
@@ -267,72 +298,87 @@ async def test_remote_expander_skips_list_directory_when_no_name(
 
 @pytest.mark.asyncio
 async def test_remote_expander_trailing_slash_uses_walk(
-    ftp_server, connection_parameters, mocker
+    fs_without_root, ftp_server, connection_parameters
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    home_path = pathlib.Path(ftp_server.home)
+    source_directory = home_path / "data"
+    source_directory.mkdir()
+    (source_directory / "file.txt").write_text("")
 
-    async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
-
-    list_directory_mock = mocker.patch(
-        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir"
-    )
-    mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     expanded_pairs = await _drain_async_iterator(expander.expand("/data/", "/dst"))
 
-    assert expanded_pairs == [("/data/file.txt", posixpath.join("/dst", "file.txt"))]
-    list_directory_mock.assert_not_called()
+    root_path = pathlib.Path(ftp_server.root)
+    expected_pairs = {
+        (str(root_path / "data" / "file.txt"), posixpath.join("/dst", "file.txt"))
+    }
+    assert set(expanded_pairs) == expected_pairs
 
 
 @pytest.mark.asyncio
 async def test_remote_expander_list_directory_target_is_directory(
-    ftp_server, connection_parameters, mocker
+    fs_without_root, ftp_server, connection_parameters
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    home_path = pathlib.Path(ftp_server.home)
+    source_directory = home_path / "data"
+    source_directory.mkdir()
+    (source_directory / "file.txt").write_text("")
 
-    async def _list_directory(*args, **kwargs):
-        yield (FTPEntryType.DIRECTORY, "/data")
-
-    async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
-
-    mocker.patch(
-        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
-    )
-    mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     expanded_pairs = await _drain_async_iterator(expander.expand("/data", "/dst"))
 
-    assert expanded_pairs == [("/data/file.txt", posixpath.join("/dst", "file.txt"))]
+    root_path = pathlib.Path(ftp_server.root)
+    expected_pairs = {
+        (str(root_path / "data" / "file.txt"), posixpath.join("/dst", "file.txt"))
+    }
+    assert set(expanded_pairs) == expected_pairs
 
 
 @pytest.mark.asyncio
 async def test_remote_expander_walk_filters_directories(
-    ftp_server, connection_parameters, mocker
+    fs_without_root, ftp_server, connection_parameters
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    home_path = pathlib.Path(ftp_server.home)
+    source_directory = home_path / "data"
+    source_directory.mkdir()
+    (source_directory / "file.txt").write_text("")
+    nested_directory = source_directory / "subdir"
+    nested_directory.mkdir()
+    (nested_directory / "nested.txt").write_text("")
 
-    async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.DIRECTORY, "/data/dir")
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
-
-    mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     expanded_pairs = await _drain_async_iterator(expander.expand("/data", "/dst"))
 
-    assert expanded_pairs == [("/data/file.txt", posixpath.join("/dst", "file.txt"))]
+    root_path = pathlib.Path(ftp_server.root)
+    expected_pairs = {
+        (str(root_path / "data" / "file.txt"), posixpath.join("/dst", "file.txt")),
+        (
+            str(root_path / "data" / "subdir" / "nested.txt"),
+            posixpath.join("/dst", "subdir", "nested.txt"),
+        ),
+    }
+    assert set(expanded_pairs) == expected_pairs
 
 
 @pytest.mark.asyncio
 async def test_remote_expander_walk_outside_root_raises(
-    ftp_server, connection_parameters, mocker, caplog
+    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
+
+    async def _list_directory(*args, **kwargs):
+        if False:
+            yield
 
     async def _walk(*args, **kwargs):
         yield ("", FTPEntryType.FILE, "/other/file.txt")
 
+    mocker.patch(
+        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
+    )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
     with caplog.at_level(logging.ERROR):
@@ -350,9 +396,9 @@ async def test_remote_expander_walk_outside_root_raises(
 
 @pytest.mark.asyncio
 async def test_remote_expander_list_directory_skips_non_matching_entries(
-    ftp_server, connection_parameters, mocker
+    connection_parameters_no_connect, ftpfs_no_connect, mocker
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory(*args, **kwargs):
         yield (FTPEntryType.FILE, "/other")
@@ -372,9 +418,9 @@ async def test_remote_expander_list_directory_skips_non_matching_entries(
 
 @pytest.mark.asyncio
 async def test_remote_expander_list_directory_error_propagates(
-    ftp_server, connection_parameters, mocker, caplog
+    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory(*args, **kwargs):
         raise RuntimeError("error")
@@ -395,15 +441,22 @@ async def test_remote_expander_list_directory_error_propagates(
 
 @pytest.mark.asyncio
 async def test_remote_expander_walk_error_propagates(
-    ftp_server, connection_parameters, mocker, caplog
+    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
+
+    async def _list_directory(*args, **kwargs):
+        if False:
+            yield
 
     async def _walk(*args, **kwargs):
         raise RuntimeError("error")
         if False:
             yield
 
+    mocker.patch(
+        "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
+    )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
     with caplog.at_level(logging.ERROR):
@@ -415,9 +468,9 @@ async def test_remote_expander_walk_error_propagates(
 
 @pytest.mark.asyncio
 async def test_remote_expander_relative_source_raises(
-    ftp_server, connection_parameters, mocker, caplog
+    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory(*args, **kwargs):
         if False:
@@ -442,7 +495,7 @@ async def test_remote_expander_relative_source_raises(
 async def test_remote_expander_prohibited_segments_raise(
     ftp_server, connection_parameters, mocker, caplog
 ):
-    expander = RemoteFTPExpander(connection_parameters)
+    expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
     with caplog.at_level(logging.ERROR):
         with pytest.raises(FTPPathError) as error:

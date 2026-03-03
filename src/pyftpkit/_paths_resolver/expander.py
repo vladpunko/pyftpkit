@@ -132,13 +132,13 @@ class RemoteFTPExpander(Expander):
 
     def __init__(
         self,
-        connections_parameters: ConnectionParameters,
+        connection_parameters: ConnectionParameters,
         *,
         executor: ThreadPoolExecutor | None = None,
     ) -> None:
         super().__init__()
 
-        self._connections_parameters = connections_parameters
+        self._connection_parameters = connection_parameters
         self._executor = executor
 
     async def expand(
@@ -174,7 +174,7 @@ class RemoteFTPExpander(Expander):
             If the remote source path is not absolute.
         """
         async with FTPFileSystem(
-            connection_parameters=self._connections_parameters,
+            connection_parameters=self._connection_parameters,
             executor=self._executor,
         ) as ftpfs:
             root_prefix = src if src.endswith(posixpath.sep) else src + posixpath.sep
