@@ -28,7 +28,7 @@ class ConnectionParameters(pydantic.BaseModel):
         10, gt=0, description="maximum number of simultaneous connections"
     )
     max_queue_size: pydantic.NonNegativeInt = pydantic.Field(
-        10000,
+        100_000,
         gt=0,
         description=(
             "bound queues so a slow consumer cannot cause unbounded memory usage"
