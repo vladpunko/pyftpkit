@@ -118,7 +118,7 @@ class LocalTreeExpander(Expander):
 
                 dst_path = posixpath.join(
                     dst,
-                    os.path.relpath(src_path, src),
+                    posixpath.relpath(src_path, src),
                 )
 
                 yield src_path, dst_path

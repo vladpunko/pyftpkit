@@ -14,7 +14,7 @@ from pyftpkit._paths_resolver.expander import Expander
 from pyftpkit._paths_resolver.path import Path
 from pyftpkit.exceptions import FTPPathError
 
-__all__ = ["Resolver", "UploadResolver"]
+__all__ = ["Resolver", "DownloadResolver", "UploadResolver"]
 
 logger = logging.getLogger("pyftpkit")
 
@@ -42,6 +42,48 @@ def _is_iterable(candidate: typing.Any) -> bool:
             collections.abc.Mapping,
         ),
     )
+
+
+def _validate_path(path: str) -> None:
+    """Validates a path.
+
+    Parameters
+    ----------
+    path : str
+        Path string to validate for structural correctness.
+
+    Raises
+    ------
+    FTPPathError
+        If the path is empty, whitespace-only, contains backslashes, or
+        includes traversal segments.
+
+    Notes
+    -----
+    This validation prevents directory traversal and enforces normalized paths
+    before performing operations.
+    """
+    if not path or not path.strip():
+        logger.error("The path must not be blank or empty.")
+        raise FTPPathError(
+            "The path must contain non-whitespace characters: {0!r}".format(path)
+        )
+
+    if "\\" in path:
+        logger.error("Paths containing backslashes are not supported.")
+        raise FTPPathError(
+            "The path contains unsupported backslash characters: {0!r}".format(path)
+        )
+
+    if any(
+        segment in {posixpath.curdir, posixpath.pardir}
+        for segment in path.split(posixpath.sep)
+        if segment
+    ):
+        logger.error("Parent directory references are not supported in paths.")
+        raise FTPPathError(
+            "Parent directory segments are not permitted in paths: {0!r}".format(path)
+        )
 
 
 class Resolver(abc.ABC, metaclass=abc.ABCMeta):
@@ -207,6 +249,159 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
                 yield pair
 
 
+class DownloadResolver(Resolver):
+    """Resolver for remote FTP sources to local destination paths.
+
+    The resolver applies simple, filesystem-style rules to determine how a single
+    remote source maps onto a local destination:
+
+    - A trailing slash or wildcard on the source (contents-only) expands directory
+      contents directly under the destination.
+
+    - A directory source without a trailing slash preserves the directory name
+      under the destination when the destination is a directory.
+
+    - A file source maps directly to the destination path (rename) unless the
+      destination is explicitly a directory.
+    """
+
+    async def _one_to_one(
+        self, src: str, dst: str
+    ) -> typing.AsyncGenerator[tuple[str, str], None]:
+        """Resolves a single remote source against a local destination.
+
+        Parameters
+        ----------
+        src : str
+            Remote source path.
+
+        dst : str
+            Local destination path.
+
+        Yields
+        ------
+        tuple[str, str]
+            Pairs representing the resolved source and destination paths.
+
+        Raises
+        ------
+        RuntimeError
+            If the destination contains wildcards, points to a non-directory where a
+            directory is required, or a file source uses a trailing slash or wildcard.
+
+        FTPPathError
+            If the source or destination path is empty, contains backslashes, or
+            includes traversal segments.
+        """
+        _validate_path(src)
+        _validate_path(dst)
+
+        src_path = Path.parse(src)
+        dst_path = Path.parse(dst)
+
+        if dst_path.has_wildcard:
+            logger.error("The destination must not contain a wildcard.")
+            raise RuntimeError(
+                "Wildcards are not allowed in the destination: {0!r}".format(
+                    dst_path.path
+                )
+            )
+
+        if (
+            dst_path.has_slash
+            and os.path.exists(dst_path.path)
+            and not os.path.isdir(dst_path.path)
+        ):
+            logger.error("Existing destination is not a directory path.")
+            raise RuntimeError(
+                "A directory is required at destination: {0!r}".format(dst_path.path)
+            )
+
+        contents_only = src_path.has_wildcard or src_path.has_slash
+        dst_is_dir = dst_path.has_slash or os.path.isdir(dst_path.path)
+        dst_is_nondir = os.path.exists(dst_path.path) and not os.path.isdir(
+            dst_path.path
+        )
+
+        if dst_is_nondir and contents_only:
+            logger.error("Existing destination is not a directory path.")
+            raise RuntimeError(
+                "Expected a directory at destination: {0!r}".format(dst_path.path)
+            )
+
+        if contents_only:
+            # Expand contents directly into destination.
+            dst_base = dst_path.path
+        elif dst_is_dir:
+            dst_base = posixpath.join(dst_path.path, posixpath.basename(src_path.path))
+        else:
+            # Either rename or place inside destination directory.
+            dst_base = dst_path.path
+
+        async for expanded_src, expanded_dst in self._expander.expand(
+            src_path.path, dst_base
+        ):
+            if dst_is_nondir and expanded_src != src_path.path:
+                logger.error("Existing destination is not a directory entry.")
+                raise RuntimeError(
+                    "A directory is required at destination: {0!r}".format(
+                        dst_path.path
+                    )
+                )
+
+            if contents_only and expanded_src == src_path.path:
+                logger.error("The source path uses an unsupported suffix.")
+                raise RuntimeError(
+                    "Trailing slash or wildcard is directory-only: {0!r}".format(
+                        src_path.path
+                    )
+                )
+
+            # Preserve the source directory name when the destination is treated as
+            # not-a-directory (based on path syntax or current filesystem state).
+            if not contents_only and not dst_is_dir and expanded_src != src_path.path:
+                relative_path = expanded_src[len(src_path.path) :].lstrip(posixpath.sep)
+
+                rebased_dst = posixpath.join(
+                    dst_path.path,
+                    posixpath.basename(src_path.path),
+                    relative_path,
+                )
+                yield expanded_src, rebased_dst
+
+                continue
+
+            yield expanded_src, expanded_dst
+
+    async def _many_to_one(
+        self,
+        src: typing.Iterable[str],
+        dst: str,
+    ) -> typing.AsyncGenerator[tuple[str, str], None]:
+        """Resolves multiple sources against a single local destination directory.
+
+        The destination is always treated as a directory to keep mappings consistent.
+        If the destination exists and is not a directory, an error is raised.
+        """
+        _validate_path(dst)
+
+        dst_path = Path.parse(dst)
+
+        if os.path.exists(dst_path.path) and not os.path.isdir(dst_path.path):
+            logger.error("Destination exists and is not a directory.")
+            raise RuntimeError(
+                "Destination must be a directory: {0!r}".format(dst_path.path)
+            )
+
+        # Normalizing to a directory avoids ambiguous semantics and ensures
+        # consistent mapping of multiple sources into one destination folder.
+        if not dst_path.has_slash and not dst_path.has_wildcard:
+            dst = dst_path.path + posixpath.sep
+
+        async for pair in super()._many_to_one(src, dst):
+            yield pair
+
+
 class UploadResolver(Resolver):
     """Resolver for uploading local sources to remote destinations.
 
@@ -247,7 +442,14 @@ class UploadResolver(Resolver):
         ------
         RuntimeError
             If the source does not exist or is an unsupported type.
+
+        FTPPathError
+            If the source or destination path is empty, contains backslashes, or
+            includes traversal segments.
         """
+        _validate_path(src)
+        _validate_path(dst)
+
         src_path = Path.parse(src)
         dst_path = Path.parse(dst)
 
@@ -305,4 +507,23 @@ class UploadResolver(Resolver):
                 dst_base = dst_path.path
 
         async for pair in self._expander.expand(src_path.path, dst_base):
+            yield pair
+
+    async def _many_to_one(
+        self,
+        src: typing.Iterable[str],
+        dst: str,
+    ) -> typing.AsyncGenerator[tuple[str, str], None]:
+        """Resolves multiple local sources against a single destination.
+
+        The destination is always treated as a directory to prevent collisions.
+        """
+        _validate_path(dst)
+
+        dst_path = Path.parse(dst)
+
+        if not dst_path.has_slash and not dst_path.has_wildcard:
+            dst = dst_path.path + posixpath.sep
+
+        async for pair in super()._many_to_one(src, dst):
             yield pair
