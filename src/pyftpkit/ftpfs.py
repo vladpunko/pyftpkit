@@ -3,8 +3,6 @@
 # Created by: Vladislav Punko <iam.vlad.punko@gmail.com>
 # Created date: 2025-10-05
 
-# ruff: noqa: C901
-
 import asyncio
 import collections.abc
 import enum
@@ -270,8 +268,7 @@ class FTPFileSystem:
         Notes
         -----
         The traversal relies on bounded queues to regulate flow control.
-        Walking will halt when the consumer cannot keep up and the output
-        queue reaches capacity.
+        Slow consumption results in workers waiting while the output queue remains full.
         """
         loop = asyncio.get_running_loop()
 
@@ -339,15 +336,9 @@ class FTPFileSystem:
                         ):
                             if entry_type == FTPEntryType.DIRECTORY:
                                 await queue.put(entry_path)
-                            try:
-                                # Fail fast if the consumer is too slow and the
-                                # output queue is full.
-                                output_queue.put_nowait(
-                                    (dirpath, entry_type, entry_path)
-                                )
-                            except asyncio.QueueFull as err:
-                                logger.error("Walk output queue is full. Stop walking.")
-                                raise err
+                            await output_queue.put((dirpath, entry_type, entry_path))
+                    except asyncio.CancelledError:
+                        raise
                     except Exception as err:
                         logger.exception(
                             "An unexpected error occurred at this program runtime."

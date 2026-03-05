@@ -5,6 +5,7 @@
 
 import abc
 import collections.abc
+import contextlib
 import logging
 import os
 import posixpath
@@ -12,7 +13,10 @@ import typing
 
 from pyftpkit._paths_resolver.expander import Expander
 from pyftpkit._paths_resolver.path import Path
-from pyftpkit.exceptions import FTPPathError
+from pyftpkit.exceptions import (
+    FTPPathError,
+    FTPPathNotAbsoluteError,
+)
 
 __all__ = ["Resolver", "DownloadResolver", "UploadResolver"]
 
@@ -83,6 +87,14 @@ def _validate_path(path: str) -> None:
         logger.error("Parent directory references are not supported in paths.")
         raise FTPPathError(
             "Parent directory segments are not permitted in paths: {0!r}".format(path)
+        )
+
+    if not path.startswith(posixpath.sep):
+        logger.error("Only absolute paths starting from the root are allowed.")
+        raise FTPPathNotAbsoluteError(
+            "The path must be absolute and start from the root directory: {0!r}".format(
+                path
+            )
         )
 
 
@@ -338,40 +350,68 @@ class DownloadResolver(Resolver):
             # Either rename or place inside destination directory.
             dst_base = dst_path.path
 
-        async for expanded_src, expanded_dst in self._expander.expand(
-            src_path.path, dst_base
-        ):
-            if dst_is_nondir and expanded_src != src_path.path:
-                logger.error("Existing destination is not a directory entry.")
-                raise RuntimeError(
-                    "A directory is required at destination: {0!r}".format(
-                        dst_path.path
+        async with contextlib.aclosing(
+            self._expander.expand(src_path.path, dst_base)
+        ) as pairs:
+            if dst_is_nondir and not contents_only:
+                try:
+                    expanded_src, expanded_dst = await anext(pairs)
+                except StopAsyncIteration:
+                    return
+
+                if expanded_src != src_path.path:
+                    logger.error("Existing destination is not a directory entry.")
+                    raise RuntimeError(
+                        "A directory is required at destination: {0!r}".format(
+                            dst_path.path
+                        )
                     )
-                )
 
-            if contents_only and expanded_src == src_path.path:
-                logger.error("The source path uses an unsupported suffix.")
-                raise RuntimeError(
-                    "Trailing slash or wildcard is directory-only: {0!r}".format(
-                        src_path.path
+                yield expanded_src, expanded_dst
+
+                async for expanded_src, expanded_dst in pairs:
+                    yield expanded_src, expanded_dst
+
+                return
+
+            async for expanded_src, expanded_dst in pairs:
+                if dst_is_nondir and expanded_src != src_path.path:
+                    logger.error("Existing destination is not a directory entry.")
+                    raise RuntimeError(
+                        "A directory is required at destination: {0!r}".format(
+                            dst_path.path
+                        )
                     )
-                )
 
-            # Preserve the source directory name when the destination is treated as
-            # not-a-directory (based on path syntax or current filesystem state).
-            if not contents_only and not dst_is_dir and expanded_src != src_path.path:
-                relative_path = expanded_src[len(src_path.path) :].lstrip(posixpath.sep)
+                if contents_only and expanded_src == src_path.path:
+                    logger.error("The source path uses an unsupported suffix.")
+                    raise RuntimeError(
+                        "Trailing slash or wildcard is directory-only: {0!r}".format(
+                            src_path.path
+                        )
+                    )
 
-                rebased_dst = posixpath.join(
-                    dst_path.path,
-                    posixpath.basename(src_path.path),
-                    relative_path,
-                )
-                yield expanded_src, rebased_dst
+                # Preserve the source directory name when the destination is treated as
+                # not-a-directory (based on path syntax or current filesystem state).
+                if (
+                    not contents_only
+                    and not dst_is_dir
+                    and expanded_src != src_path.path
+                ):
+                    relative_path = expanded_src[len(src_path.path) :].lstrip(
+                        posixpath.sep
+                    )
 
-                continue
+                    rebased_dst = posixpath.join(
+                        dst_path.path,
+                        posixpath.basename(src_path.path),
+                        relative_path,
+                    )
+                    yield expanded_src, rebased_dst
 
-            yield expanded_src, expanded_dst
+                    continue
+
+                yield expanded_src, expanded_dst
 
     async def _many_to_one(
         self,

@@ -18,6 +18,9 @@ __all__ = ["FTPPoolExecutor"]
 
 logger = logging.getLogger("pyftpkit")
 
+# Errors that can be raised when an FTP connection is already closing or closed.
+_FTP_CLOSE_ERRORS = ftplib.all_errors + (OSError, ValueError)
+
 
 class FTPPoolExecutor:
     """Asynchronous FTP connection pool executor.
@@ -314,15 +317,15 @@ class FTPPoolExecutor:
 
     def _close_connection(self, ftp: FTP) -> None:
         """Safely closes a single FTP connection."""
-        if getattr(ftp, "sock", None) is None:
+        if getattr(ftp, "sock", None) is None or getattr(ftp, "file", None) is None:
             return None
 
         try:
             ftp.quit()
-        except ftplib.all_errors:
+        except _FTP_CLOSE_ERRORS:
             try:
                 ftp.close()
-            except ftplib.all_errors as err:
+            except _FTP_CLOSE_ERRORS as err:
                 logger.exception("Unable to close the FTP connection safely.")
                 raise FTPError(
                     "Failed to safely close the FTP connection to: {0!s}:{1!s}".format(
