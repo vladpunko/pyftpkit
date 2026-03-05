@@ -12,6 +12,7 @@ import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from pyftpkit.connection_parameters import ConnectionParameters
+from pyftpkit.exceptions import FTPPathError
 from pyftpkit.ftpfs import (
     FTPEntryType,
     FTPFileSystem,
@@ -22,14 +23,34 @@ __all__ = ["Expander", "LocalTreeExpander", "RemoteFTPExpander"]
 logger = logging.getLogger("pyftpkit")
 
 
+def _as_str_path(path: str | os.PathLike) -> str:
+    """Converts the provided path-like input to a normalized string."""
+    if isinstance(path, os.PathLike):
+        path = os.fspath(path)
+
+    if isinstance(path, bytes):
+        logger.error("Bytes are not allowed for paths.")
+        raise FTPPathError(
+            f"Paths must be given as text strings rather than bytes: {path!r}"
+        )
+
+    if not isinstance(path, str):
+        logger.error("Path values must be string-like.")
+        raise FTPPathError(
+            f"Paths must be given in a string-like representation: {path!r}"
+        )
+
+    return path
+
+
 class Expander(abc.ABC, metaclass=abc.ABCMeta):
     """Abstract planner that derives explicit file pairs from a given source."""
 
     @abc.abstractmethod
     async def expand(
         self,
-        src: str,
-        dst: str,
+        src: str | os.PathLike,
+        dst: str | os.PathLike,
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         raise NotImplementedError
 
@@ -44,17 +65,17 @@ class LocalTreeExpander(Expander):
 
     async def expand(
         self,
-        src: str,
-        dst: str,
+        src: str | os.PathLike,
+        dst: str | os.PathLike,
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Expands a local source path into concrete file mappings.
 
         Parameters
         ----------
-        src : str
+        src : str or os.PathLike
             Source path to expand.
 
-        dst : str
+        dst : str or os.PathLike
             Base destination path corresponding to the source.
 
         Yields
@@ -80,8 +101,11 @@ class LocalTreeExpander(Expander):
         RuntimeError
             If the source does not exist or is a symlink.
         """
-        if src.endswith(os.path.sep):
-            trimmed_src = src.rstrip(os.path.sep)
+        src = _as_str_path(src)
+        dst = _as_str_path(dst)
+
+        if src.endswith(posixpath.sep):
+            trimmed_src = src.rstrip(posixpath.sep)
             if trimmed_src and os.path.isfile(trimmed_src):
                 logger.error("Source path ends with a separator but points to a file.")
                 raise RuntimeError(
@@ -110,7 +134,13 @@ class LocalTreeExpander(Expander):
 
             return
 
-        for rootpath, _, nondirs in os.walk(src):
+        def _raise_walk_error(err: OSError) -> None:
+            logger.exception("Error occurred while traversing the source directory.")
+            raise RuntimeError(
+                "Could not traverse the source directory: {0!r}".format(src)
+            ) from err
+
+        for rootpath, _, nondirs in os.walk(src, onerror=_raise_walk_error):
             for path in nondirs:
                 src_path = posixpath.join(rootpath, path)
                 if os.path.islink(src_path) or not os.path.isfile(src_path):
@@ -143,17 +173,17 @@ class RemoteFTPExpander(Expander):
 
     async def expand(
         self,
-        src: str,
-        dst: str,
+        src: str | os.PathLike,
+        dst: str | os.PathLike,
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Expands a remote source path into concrete file mappings.
 
         Parameters
         ----------
-        src : str
+        src : str or os.PathLike
             Remote source path to expand.
 
-        dst : str
+        dst : str or os.PathLike
             Base destination path corresponding to the source.
 
         Yields
@@ -173,6 +203,9 @@ class RemoteFTPExpander(Expander):
         FTPPathNotAbsoluteError
             If the remote source path is not absolute.
         """
+        src = _as_str_path(src)
+        dst = _as_str_path(dst)
+
         async with FTPFileSystem(
             connection_parameters=self._connection_parameters,
             executor=self._executor,
