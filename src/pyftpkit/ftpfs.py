@@ -9,6 +9,7 @@ import enum
 import ftplib
 import functools
 import logging
+import os
 import posixpath
 import re
 import typing
@@ -84,7 +85,7 @@ class FTPFileSystem:
         await self._pool.close()
 
     async def _listdir(
-        self, path: str, ftp: FTP
+        self, path: str | os.PathLike, ftp: FTP
     ) -> typing.AsyncIterator[tuple[FTPEntryType, str]]:
         """Retrieves the directory contents from the remote FTP server.
 
@@ -95,6 +96,9 @@ class FTPFileSystem:
         responses that are not compatible with this parser.
         """
         loop = asyncio.get_running_loop()
+
+        if isinstance(path, os.PathLike):
+            path = os.fspath(path)
 
         if not isinstance(path, str):
             logger.error("The remote path must be a string.")
@@ -181,13 +185,13 @@ class FTPFileSystem:
                 yield FTPEntryType.FILE, abspath
 
     async def listdir(
-        self, path: str
+        self, path: str | os.PathLike
     ) -> typing.AsyncIterator[tuple[FTPEntryType, str]]:
         """Lists the contents of a remote FTP directory.
 
         Parameters
         ----------
-        path : str
+        path : str or os.PathLike
             Remote directory path to list.
 
         Yields
@@ -230,7 +234,7 @@ class FTPFileSystem:
                 ) from err
 
     async def walk(
-        self, path: str
+        self, path: str | os.PathLike
     ) -> typing.AsyncIterator[tuple[str, FTPEntryType, str]]:
         """Asynchronously traverses a remote FTP directory tree.
 
@@ -242,7 +246,7 @@ class FTPFileSystem:
 
         Parameters
         ----------
-        path : str
+        path : str or os.PathLike
             Root directory path on the remote FTP server to begin traversal.
 
         Yields
@@ -271,6 +275,9 @@ class FTPFileSystem:
         Slow consumption results in workers waiting while the output queue remains full.
         """
         loop = asyncio.get_running_loop()
+
+        if isinstance(path, os.PathLike):
+            path = os.fspath(path)
 
         if not isinstance(path, str):
             logger.error("The remote path must be a string.")
@@ -427,15 +434,42 @@ class FTPFileSystem:
 
             raise
         finally:
+            aborting = cancelled or (
+                worker_error.done() and not worker_error.cancelled()
+            )
             stop_event.set()  # signal all workers to stop
 
             for worker in workers:
                 worker.cancel()
-            await asyncio.gather(*workers, return_exceptions=True)
+
+            if aborting:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*workers, return_exceptions=True), timeout=0.1
+                    )
+                except asyncio.TimeoutError:
+                    if cancelled:
+                        logger.warning("The walk operation was cancelled.")
+                    else:
+                        logger.warning("The walk operation was aborted.")
+            else:
+                await asyncio.gather(*workers, return_exceptions=True)
 
             if join_task is not None and not join_task.done():
                 join_task.cancel()
-                await asyncio.gather(join_task, return_exceptions=True)
+                if aborting:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(join_task, return_exceptions=True),
+                            timeout=0.1,
+                        )
+                    except asyncio.TimeoutError:
+                        if cancelled:
+                            logger.warning("The walk operation was cancelled.")
+                        else:
+                            logger.warning("The walk operation was aborted.")
+                else:
+                    await asyncio.gather(join_task, return_exceptions=True)
             # Drain any remaining items that might have been
             # placed onto the output queue before the workers were signaled to stop.
             if cancelled:
@@ -455,12 +489,12 @@ class FTPFileSystem:
                     output_queue.task_done()
 
     @functools.singledispatchmethod
-    async def makedirs(self, paths: typing.Iterable[str]) -> None:
+    async def makedirs(self, paths: typing.Iterable[str | os.PathLike]) -> None:
         """Recursively creates multiple directories on the remote FTP server."""
         loop = asyncio.get_running_loop()
 
         if not isinstance(paths, collections.abc.Iterable) or isinstance(
-            paths, (bytes, bytearray, str)
+            paths, (os.PathLike, bytes, bytearray, str)
         ):
             logger.debug(repr(paths))
             logger.error("Expected paths to be a collection of strings.")
@@ -474,6 +508,9 @@ class FTPFileSystem:
         pathtrie = PathTrie()
         async with self._pool.acquire() as ftp:
             for path in paths:
+                if isinstance(path, os.PathLike):
+                    path = os.fspath(path)
+
                 if not isinstance(path, str):
                     logger.error("The path must be provided as a string value.")
                     raise FTPPathError(
@@ -560,8 +597,9 @@ class FTPFileSystem:
                                 f"FTP server directory creation failed: {dirpath!r}."
                             ) from err
 
+    @makedirs.register(os.PathLike)
     @makedirs.register(str)
-    async def _(self, path: str) -> None:
+    async def _(self, path: str | os.PathLike) -> None:
         """Recursively creates a single directory on the remote FTP server.
 
         The given path must be absolute and use POSIX-style separators. Each directory
@@ -569,7 +607,7 @@ class FTPFileSystem:
 
         Parameters
         ----------
-        path : str
+        path : str or os.PathLike
             Absolute remote path to ensure exists on the FTP server.
 
         Raises
@@ -585,9 +623,12 @@ class FTPFileSystem:
         """
         await self.makedirs([path])
 
-    async def _rm(self, path: str, ftp: FTP) -> None:
+    async def _rm(self, path: str | os.PathLike, ftp: FTP) -> None:
         """Remove a single remote path using the provided FTP connection."""
         loop = asyncio.get_running_loop()
+
+        if isinstance(path, os.PathLike):
+            path = os.fspath(path)
 
         if not isinstance(path, str):
             logger.error("The remote path cannot be of any type other than string.")
@@ -634,12 +675,12 @@ class FTPFileSystem:
             )
             raise FTPError(f"FTP server refused to delete file: {path!r}") from err
 
-    async def rm(self, path: str) -> None:
+    async def rm(self, path: str | os.PathLike) -> None:
         """Deletes a single file from the remote FTP server.
 
         Parameters
         ----------
-        path : str
+        path : str or os.PathLike
             Absolute path to the file on the FTP server that should be removed.
 
         Raises
@@ -660,12 +701,12 @@ class FTPFileSystem:
         async with self._pool.acquire() as ftp:
             await self._rm(path, ftp=ftp)
 
-    async def rmtree(self, path: str) -> None:
+    async def rmtree(self, path: str | os.PathLike) -> None:
         """Recursively removes a directory tree from the remote FTP server.
 
         Parameters
         ----------
-        path : str
+        path : str or os.PathLike
             Absolute path to the directory tree root on the FTP server to remove.
 
         Raises
@@ -692,6 +733,9 @@ class FTPFileSystem:
         deletion contend for pooled connections. The algorithm is memory-safe.
         """
         loop = asyncio.get_running_loop()
+
+        if isinstance(path, os.PathLike):
+            path = os.fspath(path)
 
         if not isinstance(path, str):
             logger.error("The remote path cannot be of any type other than string.")
@@ -783,12 +827,12 @@ class FTPFileSystem:
                     )
                     raise FTPError(f"Unable to process directory: {dirpath!r}") from err
 
-    async def rmtree2(self, path: str) -> None:
+    async def rmtree2(self, path: str | os.PathLike) -> None:
         """Recursively removes a directory tree using concurrent traversal.
 
         Parameters
         ----------
-        path : str
+        path : str or os.PathLike
             Absolute path to the directory tree root on the FTP server to remove.
 
         Raises
@@ -821,6 +865,9 @@ class FTPFileSystem:
         option for extremely deep or massive trees.
         """
         loop = asyncio.get_running_loop()
+
+        if isinstance(path, os.PathLike):
+            path = os.fspath(path)
 
         if not isinstance(path, str):
             logger.error("The remote path cannot be anything other than a string.")
