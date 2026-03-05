@@ -89,14 +89,6 @@ def _validate_path(path: str) -> None:
             "Parent directory segments are not permitted in paths: {0!r}".format(path)
         )
 
-    if not path.startswith(posixpath.sep):
-        logger.error("Only absolute paths starting from the root are allowed.")
-        raise FTPPathNotAbsoluteError(
-            "The path must be absolute and start from the root directory: {0!r}".format(
-                path
-            )
-        )
-
 
 class Resolver(abc.ABC, metaclass=abc.ABCMeta):
     """Base resolver for mapping source paths to destinations."""
@@ -301,12 +293,21 @@ class DownloadResolver(Resolver):
             If the destination contains wildcards, points to a non-directory where a
             directory is required, or a file source uses a trailing slash or wildcard.
 
+        FTPPathNotAbsoluteError
+            If the remote source path is not absolute and does not start from the root.
+
         FTPPathError
             If the source or destination path is empty, contains backslashes, or
             includes traversal segments.
         """
         _validate_path(src)
         _validate_path(dst)
+
+        if not src.startswith(posixpath.sep):
+            logger.error("Only absolute paths starting from the root are allowed.")
+            raise FTPPathNotAbsoluteError(
+                "The path must originate at the root directory: {0!r}".format(src)
+            )
 
         src_path = Path.parse(src)
         dst_path = Path.parse(dst)
@@ -483,12 +484,21 @@ class UploadResolver(Resolver):
         RuntimeError
             If the source does not exist or is an unsupported type.
 
+        FTPPathNotAbsoluteError
+            If the remote destination path is not absolute and does not start from the root.
+
         FTPPathError
             If the source or destination path is empty, contains backslashes, or
             includes traversal segments.
         """
         _validate_path(src)
         _validate_path(dst)
+
+        if not src.startswith(posixpath.sep):
+            logger.error("The path must be specified as an absolute root-based path.")
+            raise FTPPathNotAbsoluteError(
+                "The path must start at the root and be absolute: {0!r}".format(src)
+            )
 
         src_path = Path.parse(src)
         dst_path = Path.parse(dst)
