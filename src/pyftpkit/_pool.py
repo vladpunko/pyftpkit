@@ -317,10 +317,29 @@ class FTPPoolExecutor:
 
     def _close_connection(self, ftp: FTP) -> None:
         """Safely closes a single FTP connection."""
-        if getattr(ftp, "sock", None) is None or getattr(ftp, "file", None) is None:
+        socket_stream = getattr(ftp, "file", None)
+
+        if getattr(ftp, "sock", None) is None or socket_stream is None:
+            return None
+
+        if getattr(socket_stream, "closed", False):
+            try:
+                ftp.close()
+            except _FTP_CLOSE_ERRORS as err:
+                logger.exception("Unable to close the FTP connection safely.")
+                raise FTPError(
+                    "Failed to safely close the FTP connection to: {0!s}:{1!s}".format(
+                        self._connection_parameters.host,
+                        self._connection_parameters.port,
+                    )
+                ) from err
+
             return None
 
         try:
+            if getattr(ftp, "file", None) is None:
+                return None
+
             ftp.quit()
         except _FTP_CLOSE_ERRORS:
             try:
