@@ -86,7 +86,7 @@ class PycURL:
         """Releases all resources."""
         self._curl.close()
 
-    def download(self, src: str, dst: str) -> float:
+    def download(self, src: str | os.PathLike, dst: str | os.PathLike) -> float:
         """Fetches a remote file and writes it to the local filesystem.
 
         Adds the FTP protocol prefix to the source path if missing.
@@ -94,10 +94,10 @@ class PycURL:
 
         Parameters
         ----------
-        src : str
+        src : str or os.PathLike
             The FTP path to the remote file to be downloaded.
 
-        dst : str
+        dst : str or os.PathLike
             The local filesystem path where the file will be saved.
 
         Returns
@@ -120,6 +120,12 @@ class PycURL:
         FTPError
             If any network or FTP-related issue occurs during download.
         """
+        if isinstance(src, os.PathLike):
+            src = os.fspath(src)
+
+        if isinstance(dst, os.PathLike):
+            dst = os.fspath(dst)
+
         if not isinstance(src, str) or not isinstance(dst, str):
             logger.error("The source and destination paths must both be strings.")
             raise FTPPathError(
@@ -207,7 +213,7 @@ class PycURL:
             # that has already been closed.
             self._curl.setopt(pycurl.WRITEFUNCTION, lambda x: len(x))
 
-    def upload(self, src: str, dst: str) -> None:
+    def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
         """Uploads a local file to the remote FTP server.
 
         Automatically converts the destination path to a full FTP URL and supports
@@ -217,10 +223,10 @@ class PycURL:
 
         Parameters
         ----------
-        src : str
+        src : str or os.PathLike
             Path to the local file to upload.
 
-        dst : str
+        dst : str or os.PathLike
             Path on the FTP server where the file should be placed.
 
         Raises
@@ -238,6 +244,12 @@ class PycURL:
         FTPError
             If the FTP upload fails due to network or server-side issues.
         """
+        if isinstance(src, os.PathLike):
+            src = os.fspath(src)
+
+        if isinstance(dst, os.PathLike):
+            dst = os.fspath(dst)
+
         if not isinstance(src, str) or not isinstance(dst, str):
             logger.error(
                 "The source path and the destination path must each be a string."
@@ -382,29 +394,29 @@ class PycURLPoolManager:
                 self._pool.put(curl)
                 logger.debug("Released instance: %d", id(curl))
 
-    def download(self, src: str, dst: str) -> None:
+    def download(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
         """Downloads a file from the FTP server using a pooled `PycURL` instance.
 
         Parameters
         ----------
-        src : str
+        src : str or os.PathLike
             Remote FTP path of the file to download.
 
-        dst : str
+        dst : str or os.PathLike
             Local path where the file will be saved.
         """
         with self.acquire() as curl:
             curl.download(src, dst)
 
-    def upload(self, src: str, dst: str) -> None:
+    def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
         """Uploads a local file to the FTP server using a pooled `PycURL` instance.
 
         Parameters
         ----------
-        src : str
+        src : str or os.PathLike
             Path to the local file to upload.
 
-        dst : str
+        dst : str or os.PathLike
             Destination path on the FTP server.
         """
         with self.acquire() as curl:
