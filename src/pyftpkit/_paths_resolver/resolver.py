@@ -23,7 +23,7 @@ __all__ = ["Resolver", "DownloadResolver", "UploadResolver"]
 logger = logging.getLogger("pyftpkit")
 
 
-def _is_iterable(candidate: typing.Any) -> bool:
+def _is_iterable(candidate: typing.Any) -> typing.TypeGuard[collections.abc.Iterable]:
     """Checks if the input is iterable, excluding strings, bytes, and mappings.
 
     Parameters
@@ -42,18 +42,19 @@ def _is_iterable(candidate: typing.Any) -> bool:
         (
             bytearray,
             bytes,
-            str,
             collections.abc.Mapping,
+            os.PathLike,
+            str,
         ),
     )
 
 
-def _validate_path(path: str) -> None:
+def _validate_path(path: str | os.PathLike) -> None:
     """Validates a path.
 
     Parameters
     ----------
-    path : str
+    path : str or os.PathLike
         Path string to validate for structural correctness.
 
     Raises
@@ -67,6 +68,15 @@ def _validate_path(path: str) -> None:
     This validation prevents directory traversal and enforces normalized paths
     before performing operations.
     """
+    if isinstance(path, os.PathLike):
+        path = os.fspath(path)
+
+    if not isinstance(path, str):
+        logger.error("Paths must be provided as text strings.")
+        raise FTPPathError(
+            "Paths must be given as text strings rather than bytes: {0!r}".format(path)
+        )
+
     if not path or not path.strip():
         logger.error("The path must not be blank or empty.")
         raise FTPPathError(
@@ -98,8 +108,8 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
 
     async def resolve(
         self,
-        src: str | typing.Iterable[str],
-        dst: str | typing.Iterable[str],
+        src: str | os.PathLike | typing.Iterable[str | os.PathLike],
+        dst: str | os.PathLike | typing.Iterable[str | os.PathLike],
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Resolves source and destination inputs into concrete file mappings.
 
@@ -118,31 +128,53 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
         TypeError:
             If the combination of input types is invalid.
         """
-        match (src, dst):
-            # Single source mapped to a single destination.
-            case (str(), str()):
-                async for pair in self._one_to_one(src, dst):
-                    yield pair
+        if isinstance(src, os.PathLike):
+            src = os.fspath(src)
 
-            # Multiple sources mapped to a single destination.
-            # Destination is treated as a base directory.
-            case (_, str()) if _is_iterable(src):
-                async for pair in self._many_to_one(src, dst):
-                    yield pair
+        if isinstance(dst, os.PathLike):
+            dst = os.fspath(dst)
 
-            # One-to-one mapping between several sources and several destinations.
-            case (_, _) if _is_iterable(src) and _is_iterable(dst):
-                async for pair in self._many_to_many(src, dst):
-                    yield pair
+        # Single source mapped to a single destination.
+        if isinstance(src, str) and isinstance(dst, str):
+            async for pair in self._one_to_one(src, dst):
+                yield pair
 
-            case _:
-                logger.error("Unsupported argument combination.")
-                raise TypeError(
-                    "Invalid argument types passed to resolve: {0!s} and {1!s}.".format(
-                        type(src).__name__,
-                        type(dst).__name__,
-                    )
-                )
+            return
+
+        # Multiple sources mapped to a single destination.
+        # Destination is treated as a base directory.
+        if _is_iterable(src) and isinstance(dst, str):
+            src_iter = typing.cast(
+                typing.Iterable[str | os.PathLike],
+                src,
+            )
+            async for pair in self._many_to_one(src_iter, dst):
+                yield pair
+
+            return
+
+        # One-to-one mapping between several sources and several destinations.
+        if _is_iterable(src) and _is_iterable(dst):
+            src_iter = typing.cast(
+                typing.Iterable[str | os.PathLike],
+                src,
+            )
+            dst_iter = typing.cast(
+                typing.Iterable[str | os.PathLike],
+                dst,
+            )
+            async for pair in self._many_to_many(src_iter, dst_iter):
+                yield pair
+
+            return
+
+        logger.error("Unsupported argument combination.")
+        raise TypeError(
+            "Invalid argument types passed to resolve: {0!s} and {1!s}.".format(
+                type(src).__name__,
+                type(dst).__name__,
+            )
+        )
 
     @abc.abstractmethod
     async def _one_to_one(
@@ -154,7 +186,7 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
 
     async def _many_to_one(
         self,
-        src: typing.Iterable[str],
+        src: typing.Iterable[str | os.PathLike],
         dst: str,
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Resolves multiple sources against a single destination.
@@ -164,7 +196,7 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
 
         Parameters
         ----------
-        src : Iterable[str]
+        src : Iterable[str] or Iterable[os.PathLike]
             An iterable of source paths.
 
         dst : str
@@ -181,6 +213,9 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
             If any source is not a string.
         """
         for src_path in src:
+            if isinstance(src_path, os.PathLike):
+                src_path = os.fspath(src_path)
+
             if not isinstance(src_path, str):
                 logger.error("Each source must be a string.")
                 raise FTPPathError(
@@ -192,8 +227,8 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
 
     async def _many_to_many(
         self,
-        src: typing.Iterable[str],
-        dst: typing.Iterable[str],
+        src: typing.Iterable[str | os.PathLike],
+        dst: typing.Iterable[str | os.PathLike],
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Pairs each source with its matching destination in a positional mapping.
 
@@ -202,10 +237,10 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
 
         Parameters
         ----------
-        src : Iterable[str]
+        src : Iterable[str] or Iterable[os.PathLike]
             Iterable of source paths.
 
-        dst : Iterable[str]
+        dst : Iterable[str] or Iterable[os.PathLike]
             Iterable of destination paths.
 
         Yields
@@ -235,6 +270,12 @@ class Resolver(abc.ABC, metaclass=abc.ABCMeta):
                 raise RuntimeError(
                     "Source and destination iterables must have equal length."
                 ) from err
+
+            if isinstance(src_path, os.PathLike):
+                src_path = os.fspath(src_path)
+
+            if isinstance(dst_path, os.PathLike):
+                dst_path = os.fspath(dst_path)
 
             if not isinstance(src_path, str) or not isinstance(dst_path, str):
                 logger.error("Both source and destination must be strings.")
@@ -304,10 +345,10 @@ class DownloadResolver(Resolver):
         _validate_path(dst)
 
         if not src.startswith(posixpath.sep):
-            logger.error("Only absolute paths starting from the root are allowed.")
-            raise FTPPathNotAbsoluteError(
-                "The path must originate at the root directory: {0!r}".format(src)
+            logger.error(
+                "The path is not rooted at the root directory and is not absolute."
             )
+            raise FTPPathNotAbsoluteError(f"Ambiguous path: {src!r}")
 
         src_path = Path.parse(src)
         dst_path = Path.parse(dst)
@@ -358,7 +399,12 @@ class DownloadResolver(Resolver):
                 try:
                     expanded_src, expanded_dst = await anext(pairs)
                 except StopAsyncIteration:
-                    return
+                    logger.error("Existing destination is not a directory entry.")
+                    raise RuntimeError(
+                        "A directory is required at destination: {0!r}".format(
+                            dst_path.path
+                        )
+                    ) from None
 
                 if expanded_src != src_path.path:
                     logger.error("Existing destination is not a directory entry.")
@@ -370,20 +416,9 @@ class DownloadResolver(Resolver):
 
                 yield expanded_src, expanded_dst
 
-                async for expanded_src, expanded_dst in pairs:
-                    yield expanded_src, expanded_dst
-
                 return
 
             async for expanded_src, expanded_dst in pairs:
-                if dst_is_nondir and expanded_src != src_path.path:
-                    logger.error("Existing destination is not a directory entry.")
-                    raise RuntimeError(
-                        "A directory is required at destination: {0!r}".format(
-                            dst_path.path
-                        )
-                    )
-
                 if contents_only and expanded_src == src_path.path:
                     logger.error("The source path uses an unsupported suffix.")
                     raise RuntimeError(
@@ -416,7 +451,7 @@ class DownloadResolver(Resolver):
 
     async def _many_to_one(
         self,
-        src: typing.Iterable[str],
+        src: typing.Iterable[str | os.PathLike],
         dst: str,
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Resolves multiple sources against a single local destination directory.
@@ -485,7 +520,7 @@ class UploadResolver(Resolver):
             If the source does not exist or is an unsupported type.
 
         FTPPathNotAbsoluteError
-            If the remote destination path is not absolute and does not start from the root.
+            If the remote destination path is not an absolute path from the root.
 
         FTPPathError
             If the source or destination path is empty, contains backslashes, or
@@ -494,11 +529,11 @@ class UploadResolver(Resolver):
         _validate_path(src)
         _validate_path(dst)
 
-        if not src.startswith(posixpath.sep):
-            logger.error("The path must be specified as an absolute root-based path.")
-            raise FTPPathNotAbsoluteError(
-                "The path must start at the root and be absolute: {0!r}".format(src)
+        if not dst.startswith(posixpath.sep):
+            logger.error(
+                "The path is not absolute and does not start from the root directory."
             )
+            raise FTPPathNotAbsoluteError(f"Ambiguous path: {dst!r}")
 
         src_path = Path.parse(src)
         dst_path = Path.parse(dst)
@@ -533,35 +568,27 @@ class UploadResolver(Resolver):
             )
 
         name = os.path.basename(src_path.path)
-        match (
-            src_is_dir,
-            src_path.has_slash or src_path.has_wildcard,
-            dst_path.has_slash,
-        ):
+        if src_is_dir and (src_path.has_slash or src_path.has_wildcard):
             # Contents only: the contents of the source directory are mapped
             # directly under the destination base path.
-            case (True, True, _):
-                dst_base = dst_path.path
-
+            dst_base = dst_path.path
+        elif src_is_dir:
             # Preserve directory name: the source directory is placed under the
             # destination path.
-            case (True, False, _):
-                dst_base = posixpath.join(dst_path.path, name)
-
+            dst_base = posixpath.join(dst_path.path, name)
+        elif dst_path.has_slash:
             # File to directory: the source is placed inside the destination directory.
-            case (False, False, True):
-                dst_base = posixpath.join(dst_path.path, name)
-
+            dst_base = posixpath.join(dst_path.path, name)
+        else:
             # File rename: the destination is treated as the target path.
-            case (False, False, False):
-                dst_base = dst_path.path
+            dst_base = dst_path.path
 
         async for pair in self._expander.expand(src_path.path, dst_base):
             yield pair
 
     async def _many_to_one(
         self,
-        src: typing.Iterable[str],
+        src: typing.Iterable[str | os.PathLike],
         dst: str,
     ) -> typing.AsyncGenerator[tuple[str, str], None]:
         """Resolves multiple local sources against a single destination.
@@ -569,6 +596,12 @@ class UploadResolver(Resolver):
         The destination is always treated as a directory to prevent collisions.
         """
         _validate_path(dst)
+
+        if not dst.startswith(posixpath.sep):
+            logger.error(
+                "The path does not start at the root directory and is not absolute."
+            )
+            raise FTPPathNotAbsoluteError(f"Ambiguous path: {dst!r}")
 
         dst_path = Path.parse(dst)
 
