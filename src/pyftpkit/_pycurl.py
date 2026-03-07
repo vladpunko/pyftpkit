@@ -9,6 +9,7 @@ import logging
 import os
 import posixpath
 import queue
+import time
 import typing
 import urllib.parse
 
@@ -24,6 +25,24 @@ from pyftpkit.exceptions import (
 __all__ = ["PycURL", "PycURLPoolManager"]
 
 logger = logging.getLogger("pyftpkit")
+
+
+def _is_retryable_error(error: pycurl.error) -> bool:
+    """Checks whether the cURL error is transient and should be retried."""
+    if not error.args:
+        return False
+
+    code = error.args[0]
+    # Error payload shape is not guaranteed: guard before numeric
+    # comparisons so non-standard tuples do not raise type errors.
+    if not isinstance(code, int):
+        return False
+
+    return code in {
+        pycurl.E_COULDNT_CONNECT,
+        pycurl.E_COULDNT_RESOLVE_HOST,
+        pycurl.E_COULDNT_RESOLVE_PROXY,
+    }
 
 
 class PycURL:
@@ -81,6 +100,32 @@ class PycURL:
         netloc = f"{host!s}:{port!s}" if port and port > 0 else host
 
         return urllib.parse.urlunparse(("ftp", netloc, encoded_path, "", "", ""))
+
+    def _perform_with_retries(self) -> None:
+        """Runs cURL perform with retry and backoff on connection-related failures."""
+        retry_count = self._connection_parameters.retry_count
+        for attempt in range(1, retry_count + 2):
+            try:
+                self._curl.perform()
+
+                return None
+            except pycurl.error as err:
+                if not _is_retryable_error(err) or attempt > retry_count:
+                    raise
+
+                sleep_seconds = self._connection_parameters.retry_backoff * (
+                    2 ** (attempt - 1)
+                )
+                logger.warning(
+                    (
+                        "Connection attempt failed due to cURL error."
+                        "\nRetry %d of %d in %.5f seconds."
+                    ),
+                    attempt,
+                    retry_count,
+                    sleep_seconds,
+                )
+                time.sleep(sleep_seconds)
 
     def close(self) -> None:
         """Releases all resources."""
@@ -179,7 +224,7 @@ class PycURL:
             self._curl.setopt(pycurl.URL, src)
             with io.open(dst, mode="wb") as buffer:
                 self._curl.setopt(pycurl.WRITEFUNCTION, buffer.write)
-                self._curl.perform()
+                self._perform_with_retries()
 
                 size_bytes = typing.cast(
                     float, self._curl.getinfo(pycurl.SIZE_DOWNLOAD)  # type: ignore
@@ -299,7 +344,7 @@ class PycURL:
             self._curl.setopt(pycurl.UPLOAD, 1)
             with io.open(src, mode="rb") as stream:
                 self._curl.setopt(pycurl.READFUNCTION, stream.read)
-                self._curl.perform()
+                self._perform_with_retries()
                 logger.debug("Finished uploading %r to %r on the FTP server.", src, dst)
         except pycurl.error as err:
             logger.exception("File could not be uploaded to the FTP server.")

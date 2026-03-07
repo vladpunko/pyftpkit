@@ -37,6 +37,18 @@ class ConnectionParameters(pydantic.BaseModel):
     max_workers: pydantic.NonNegativeInt = pydantic.Field(
         30, gt=0, description="maximum number of worker threads for parallel tasks"
     )
+    retry_count: pydantic.NonNegativeInt = pydantic.Field(
+        3,
+        gt=0,
+        description="number of retry attempts for transient FTP connect errors",
+    )
+    retry_backoff: pydantic.NonNegativeFloat = pydantic.Field(
+        0.5,
+        gt=0,
+        description=(
+            "base delay in seconds for connect retries with exponential backoff"
+        ),
+    )
     extra_options: dict[int, str | int] = pydantic.Field(
         default_factory=dict,
         description="optional dictionary of additional cURL configuration options",
