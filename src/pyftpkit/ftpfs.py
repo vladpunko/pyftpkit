@@ -314,12 +314,12 @@ class FTPFileSystem:
         worker_error = loop.create_future()
 
         queue: asyncio.Queue[str] = asyncio.Queue(
-            maxsize=max(1, self._connection_parameters.max_queue_size)
+            maxsize=max(1, self._connection_parameters.max_queues_size)
         )
         await queue.put(path)
 
         output_queue: asyncio.Queue[tuple[str, FTPEntryType, str] | Exception] = (
-            asyncio.Queue(maxsize=max(1, self._connection_parameters.max_queue_size))
+            asyncio.Queue(maxsize=max(1, self._connection_parameters.max_queues_size))
         )
 
         async def _worker() -> None:
@@ -907,7 +907,7 @@ class FTPFileSystem:
             )
 
         # A backup option when the pool is too small.
-        capacity = max(1, self._connection_parameters.max_connections // 2)
+        capacity = max(1, self._connection_parameters.max_connections)
         if capacity <= 1:
             await self.rmtree(path)
 

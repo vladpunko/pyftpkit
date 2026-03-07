@@ -137,7 +137,7 @@ class FTPPoolExecutor:
 
         tasks = [
             loop.run_in_executor(self._executor, self._connect)
-            for _ in range(max(1, self._connection_parameters.max_connections // 2))
+            for _ in range(max(1, self._connection_parameters.max_connections))
         ]
 
         # Initialize a list to hold successfully created connections.
@@ -215,7 +215,7 @@ class FTPPoolExecutor:
                 return None
 
             self._pool = asyncio.Queue(
-                maxsize=max(1, self._connection_parameters.max_connections // 2)
+                maxsize=max(1, self._connection_parameters.max_connections)
             )
 
             await self._open_connections()

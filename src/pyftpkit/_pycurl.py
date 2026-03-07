@@ -336,7 +336,7 @@ class PycURLPoolManager:
         self._connection_parameters = connection_parameters
 
         self._pool = queue.LifoQueue(
-            maxsize=max(1, self._connection_parameters.max_connections // 2)
+            maxsize=max(1, self._connection_parameters.max_connections)
         )
         for _ in range(self._pool.maxsize):
             self._pool.put(PycURL(connection_parameters=self._connection_parameters))

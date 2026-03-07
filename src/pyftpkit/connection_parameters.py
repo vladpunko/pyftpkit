@@ -27,7 +27,7 @@ class ConnectionParameters(pydantic.BaseModel):
     max_connections: pydantic.NonNegativeInt = pydantic.Field(
         10, gt=0, description="maximum number of simultaneous connections"
     )
-    max_queue_size: pydantic.NonNegativeInt = pydantic.Field(
+    max_queues_size: pydantic.NonNegativeInt = pydantic.Field(
         100_000,
         gt=0,
         description=(
