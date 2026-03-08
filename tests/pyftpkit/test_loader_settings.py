@@ -52,7 +52,7 @@ def test_from_arguments_ignores_none_and_uses_defaults(host, port, username, pas
     settings = LoaderSettings.from_arguments(vars(namespace))
 
     assert settings.connection_parameters.max_connections == 10
-    assert settings.connection_parameters.max_workers == 30
+    assert settings.connection_parameters.max_workers == 20
     assert settings.connection_parameters.timeout == 30
     assert settings.logger_interval == 10
 
