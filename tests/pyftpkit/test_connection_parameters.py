@@ -22,7 +22,7 @@ from pyftpkit.connection_parameters import ConnectionParameters
         ("transfer_retry_count", -1),
     ],
 )
-def test_connection_parameters_invalid_values(
+def test_connection_parameters_reject_invalid_values(
     host, port, username, password, field, value
 ):
     payload = {

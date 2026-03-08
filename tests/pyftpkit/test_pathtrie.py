@@ -40,7 +40,7 @@ _MAX_MEMORY_GROWTH_BYTES = 5 * 1024 * 1024  # 5 MB
         (["a/b/c"], ["a", "a/b", "a/b/c"]),
     ],
 )
-def test_insert(paths, expected_paths):
+def test_insert_adds_expected_paths(paths, expected_paths):
     trie = PathTrie()
     for path in paths:
         trie.insert(path)
@@ -49,7 +49,7 @@ def test_insert(paths, expected_paths):
         assert path == expected_path
 
 
-def test_iter_deterministic_order():
+def test_iterator_returns_deterministic_order():
     trie = PathTrie()
     trie.insert("/b/2")
     trie.insert("/a/1")
@@ -58,7 +58,7 @@ def test_iter_deterministic_order():
     assert list(trie) == ["/", "/a", "/a/1", "/b", "/b/2", "/c"]
 
 
-def test_reverse_iter_deterministic_order():
+def test_reverse_iterator_returns_deterministic_order():
     trie = PathTrie()
     trie.insert("/b/2")
     trie.insert("/a/1")
@@ -67,7 +67,7 @@ def test_reverse_iter_deterministic_order():
     assert list(reversed(trie)) == ["/a/1", "/a", "/b/2", "/b", "/c", "/"]
 
 
-def test_reverse_iter_relative_paths():
+def test_reverse_iterator_handles_relative_paths():
     trie = PathTrie()
     trie.insert("a/b")
     trie.insert("a/c")
@@ -75,7 +75,7 @@ def test_reverse_iter_relative_paths():
     assert list(reversed(trie)) == ["a/b", "a/c", "a"]
 
 
-def test_reverse_iter_mixed_absolute_and_relative_paths():
+def test_reverse_iterator_handles_mixed_absolute_and_relative_paths():
     trie = PathTrie()
     trie.insert("/a/b")
     trie.insert("a/b")
@@ -84,20 +84,20 @@ def test_reverse_iter_mixed_absolute_and_relative_paths():
     assert list(reversed(trie)) == ["/a/b", "/a", "/c", "/", "a/b", "a"]
 
 
-def test_reverse_iter_empty_trie():
+def test_reverse_iterator_handles_empty_trie():
     trie = PathTrie()
 
     assert list(reversed(trie)) == []
 
 
-def test_reverse_iter_root_only():
+def test_reverse_iterator_handles_root_only():
     trie = PathTrie()
     trie.insert("/")
 
     assert list(reversed(trie)) == ["/"]
 
 
-def test_get_all_unique_paths_deterministic_order():
+def test_get_all_unique_paths_returns_deterministic_order():
     trie = PathTrie()
     trie.insert("/b/2")
     trie.insert("/a/1")
@@ -185,7 +185,7 @@ def test_long_paths_iterators_do_not_leak_memory():
     assert total_growth < _MAX_MEMORY_GROWTH_BYTES
 
 
-def test_clear():
+def test_clear_removes_all_paths():
     trie = PathTrie()
     trie.insert("/1/2")
     trie.insert("/1/3")
@@ -196,7 +196,7 @@ def test_clear():
     assert not trie.get_all_unique_paths()
 
 
-def test_get_all_unique_paths():
+def test_get_all_unique_paths_returns_all_paths():
     trie = PathTrie()
     trie.insert("/1/2")
     trie.insert("/2/3")

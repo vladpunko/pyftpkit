@@ -8,7 +8,7 @@ import pytest
 from pyftpkit._paths_resolver.path import Path
 
 
-def test_parse_has_wildcard():
+def test_parse_sets_wildcard_flag_for_pattern():
     parsed = Path.parse("/a/b/*")
 
     assert parsed.path == "/a/b"
@@ -16,7 +16,7 @@ def test_parse_has_wildcard():
     assert parsed.has_slash is False
 
 
-def test_parse_root_wildcard():
+def test_parse_root_with_wildcard_sets_flags():
     parsed = Path.parse("/*")
 
     assert parsed.path == "/"
@@ -24,7 +24,7 @@ def test_parse_root_wildcard():
     assert parsed.has_slash is True
 
 
-def test_parse_has_slash():
+def test_parse_sets_trailing_slash_flag():
     parsed = Path.parse("/a/b/")
 
     assert parsed.path == "/a/b"
@@ -32,7 +32,7 @@ def test_parse_has_slash():
     assert parsed.has_wildcard is False
 
 
-def test_parse_root_keeps_slash():
+def test_parse_root_preserves_trailing_slash():
     parsed = Path.parse("/")
 
     assert parsed.path == "/"
@@ -40,7 +40,7 @@ def test_parse_root_keeps_slash():
     assert parsed.has_wildcard is False
 
 
-def test_parse_root_collapse_from_only_separators():
+def test_parse_collapses_only_separators_to_root():
     parsed = Path.parse("////")
 
     assert parsed.path == "/"
@@ -48,14 +48,14 @@ def test_parse_root_collapse_from_only_separators():
     assert parsed.has_wildcard is False
 
 
-def test_parse_cache_identity():
+def test_parse_returns_cached_instance():
     first_parse = Path.parse("/cache")
     second_parse = Path.parse("/cache")
 
     assert first_parse is second_parse
 
 
-def test_parse_empty_string():
+def test_parse_empty_string_returns_root():
     parsed = Path.parse("")
 
     assert parsed.path == "/"
@@ -75,7 +75,7 @@ def test_parse_empty_string():
         ("/a/*", "/a", False, True),
     ],
 )
-def test_parse_edge_cases(
+def test_parse_handles_edge_cases(
     input_path,
     expected_path,
     has_slash,
