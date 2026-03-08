@@ -4,6 +4,7 @@
 # Created date: 2026-03-01
 
 import logging
+import os
 import pathlib
 
 import pytest
@@ -1169,5 +1170,30 @@ async def test_upload_raises_for_invalid_argument_types(
 
     message = "Invalid argument types passed to resolve: {0!s} and {1!s}.".format(
         type(str(source_path)).__name__, type(destination_paths).__name__
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_upload_resolver_raises_for_pathlike_bytes_source(
+    caplog, upload_resolver
+):
+    class BytesPathLike(os.PathLike):
+        def __fspath__(self):
+            return b"/data/file.txt"
+
+    pathlike_value = BytesPathLike()
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(FTPPathError) as error:
+            await _drain_async_iterator(
+                upload_resolver._one_to_one(pathlike_value, "/output/")
+            )
+
+    message = "Paths must be provided as text strings."
+    assert message in caplog.text
+
+    message = "Paths must be given as text strings rather than bytes: {0!r}".format(
+        b"/data/file.txt"
     )
     assert message in str(error.value)
