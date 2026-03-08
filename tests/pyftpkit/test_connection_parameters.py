@@ -3,6 +3,8 @@
 # Created by: Vladislav Punko <iam.vlad.punko@gmail.com>
 # Created date: 2026-02-28
 
+import logging
+
 import pydantic
 import pytest
 
@@ -23,7 +25,7 @@ from pyftpkit.connection_parameters import ConnectionParameters
     ],
 )
 def test_connection_parameters_reject_invalid_values(
-    host, port, username, password, field, value
+    host, port, username, password, field, value, caplog
 ):
     payload = {
         "host": host,
@@ -35,8 +37,12 @@ def test_connection_parameters_reject_invalid_values(
     }
     payload[field] = value
 
-    with pytest.raises(pydantic.ValidationError):
-        ConnectionParameters.model_validate(payload)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(pydantic.ValidationError) as error:
+            ConnectionParameters.model_validate(payload)
+
+    assert caplog.text == ""
+    assert field in str(error.value)
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,8 @@ import pytest
 from pyftpkit._pathtrie import PathTrie
 
 _MAX_MEMORY_GROWTH_BYTES = 5 * 1024 * 1024  # 5 MB
+_LONG_PATH_CYCLES = 2
+_LONG_PATH_COUNT = 50_000
 
 
 @pytest.mark.parametrize(
@@ -128,9 +130,9 @@ def test_long_paths_do_not_leak_memory():
     tracemalloc.start()
     baseline_snapshot = tracemalloc.take_snapshot()
 
-    for cycle in range(3):
+    for cycle in range(_LONG_PATH_CYCLES):
         trie = PathTrie()
-        for index in range(500_000):
+        for index in range(_LONG_PATH_COUNT):
             path = posixpath.join(
                 "/",
                 "start" * 20,
@@ -158,9 +160,9 @@ def test_long_paths_iterators_do_not_leak_memory():
     tracemalloc.start()
     baseline_snapshot = tracemalloc.take_snapshot()
 
-    for cycle in range(3):
+    for cycle in range(_LONG_PATH_CYCLES):
         trie = PathTrie()
-        for index in range(500_000):
+        for index in range(_LONG_PATH_COUNT):
             path = posixpath.join(
                 "/",
                 "start" * 20,

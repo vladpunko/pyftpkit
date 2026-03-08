@@ -4,6 +4,7 @@
 # Created date: 2026-02-25
 
 import argparse
+import logging
 
 import pydantic
 import pytest
@@ -59,7 +60,7 @@ def test_from_arguments_ignores_none_and_uses_defaults(host, port, username, pas
 
 @pytest.mark.parametrize("logger_interval", [0, -1])
 def test_from_arguments_rejects_invalid_logger_interval(
-    host, port, username, password, logger_interval
+    host, port, username, password, logger_interval, caplog
 ):
     namespace = argparse.Namespace(
         host=host,
@@ -69,8 +70,12 @@ def test_from_arguments_rejects_invalid_logger_interval(
         logger_interval=logger_interval,
     )
 
-    with pytest.raises(pydantic.ValidationError):
-        LoaderSettings.from_arguments(vars(namespace))
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(pydantic.ValidationError) as error:
+            LoaderSettings.from_arguments(vars(namespace))
+
+    assert caplog.text == ""
+    assert "logger_interval" in str(error.value)
 
 
 def test_from_arguments_ignores_unknown_arguments(host, port, username, password):

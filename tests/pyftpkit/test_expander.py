@@ -62,7 +62,7 @@ def connection_parameters_no_connect(host, port, username, password):
 
 
 @pytest.fixture
-def ftpfs_no_connect(mocker):
+def ftp_filesystem_no_connect(mocker):
     async def _enter(self):
         return self
 
@@ -87,8 +87,10 @@ async def test_local_tree_expander_rejects_bytes_paths(caplog):
     message = "Bytes are not allowed for paths."
     assert message in caplog.text
 
-    message = f"Paths must be given as text strings rather than bytes: {path!r}"
-    assert "text strings rather than bytes" in str(error.value)
+    message = "Paths must be given as text strings rather than bytes: {0!r}".format(
+        path
+    )
+    assert message in str(error.value)
 
 
 @pytest.mark.asyncio
@@ -103,7 +105,7 @@ async def test_local_tree_expander_rejects_non_string_paths(caplog):
     message = "Path values must be string-like."
     assert message in caplog.text
 
-    message = f"Paths must be given in a string-like representation: {path!r}"
+    message = "Paths must be given in a string-like representation: {0!r}".format(path)
     assert message in str(error.value)
 
 
@@ -119,12 +121,14 @@ async def test_local_tree_expander_rejects_bytes_destination(caplog):
     message = "Bytes are not allowed for paths."
     assert message in caplog.text
 
-    message = f"Paths must be given as text strings rather than bytes: {path!r}"
-    assert "text strings rather than bytes" in str(error.value)
+    message = "Paths must be given as text strings rather than bytes: {0!r}".format(
+        path
+    )
+    assert message in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_accepts_pathlike_arguments(fs_without_root):
+async def test_local_tree_expander_accepts_pathlike_arguments(filesystem_without_root):
     source_path = pathlib.Path("/a.txt")
     source_path.write_text("", encoding="utf-8")
     destination_path = pathlib.Path("/b.txt")
@@ -137,7 +141,9 @@ async def test_local_tree_expander_accepts_pathlike_arguments(fs_without_root):
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_returns_single_pair_for_file(fs_without_root):
+async def test_local_tree_expander_returns_single_pair_for_file(
+    filesystem_without_root,
+):
     source_path = pathlib.Path("/a.txt")
     source_path.write_text("", encoding="utf-8")
     destination_path = "/b.txt"
@@ -150,7 +156,9 @@ async def test_local_tree_expander_returns_single_pair_for_file(fs_without_root)
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_raises_for_missing_source(fs_without_root, caplog):
+async def test_local_tree_expander_raises_for_missing_source(
+    filesystem_without_root, caplog
+):
     expander = LocalTreeExpander()
 
     source_path = "/missing"
@@ -168,7 +176,9 @@ async def test_local_tree_expander_raises_for_missing_source(fs_without_root, ca
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_raises_for_symlink_source(fs_without_root, caplog):
+async def test_local_tree_expander_raises_for_symlink_source(
+    filesystem_without_root, caplog
+):
     target_path = pathlib.Path("/target.txt")
     target_path.write_text("", encoding="utf-8")
     source_path = pathlib.Path("/link.txt")
@@ -190,7 +200,7 @@ async def test_local_tree_expander_raises_for_symlink_source(fs_without_root, ca
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_skips_symlinks_in_directory(fs_without_root):
+async def test_local_tree_expander_skips_symlinks_in_directory(filesystem_without_root):
     source_directory = pathlib.Path("/root")
     source_directory.mkdir()
     subdirectory_path = source_directory / "subdir"
@@ -222,7 +232,7 @@ async def test_local_tree_expander_skips_symlinks_in_directory(fs_without_root):
 
 @pytest.mark.asyncio
 async def test_local_tree_expander_raises_for_file_with_trailing_slash(
-    fs_without_root, caplog
+    filesystem_without_root, caplog
 ):
     source_path = pathlib.Path("/a.txt")
     source_path.write_text("", encoding="utf-8")
@@ -244,7 +254,7 @@ async def test_local_tree_expander_raises_for_file_with_trailing_slash(
 
 @pytest.mark.asyncio
 async def test_remote_expander_short_circuits_for_file(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -266,7 +276,7 @@ async def test_remote_expander_short_circuits_for_file(
 
 @pytest.mark.asyncio
 async def test_remote_expander_falls_back_to_walk_when_list_directory_returns_directory(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -292,9 +302,7 @@ async def test_remote_expander_falls_back_to_walk_when_list_directory_returns_di
 
 
 @pytest.mark.asyncio
-async def test_remote_expander_walks_directory_tree(
-    fs_without_root, ftp_server, connection_parameters
-):
+async def test_remote_expander_walks_directory_tree(ftp_server, connection_parameters):
     home_path = pathlib.Path(ftp_server.home)
     root_path = pathlib.Path(ftp_server.root)
     source_directory = home_path / "data"
@@ -321,7 +329,7 @@ async def test_remote_expander_walks_directory_tree(
 
 @pytest.mark.asyncio
 async def test_remote_expander_skips_non_file_entries_from_walk(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -350,7 +358,7 @@ async def test_remote_expander_skips_non_file_entries_from_walk(
 
 @pytest.mark.asyncio
 async def test_remote_expander_handles_root_directory(
-    fs_without_root, ftp_server, connection_parameters
+    ftp_server, connection_parameters
 ):
     home_path = pathlib.Path(ftp_server.home)
     root_path = pathlib.Path(ftp_server.root)
@@ -370,7 +378,7 @@ async def test_remote_expander_handles_root_directory(
 
 @pytest.mark.asyncio
 async def test_remote_expander_skips_list_directory_for_root(
-    fs_without_root, ftp_server, connection_parameters
+    ftp_server, connection_parameters
 ):
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
@@ -393,7 +401,7 @@ async def test_remote_expander_skips_list_directory_for_root(
 
 @pytest.mark.asyncio
 async def test_remote_expander_skips_list_directory_when_basename_missing(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -417,7 +425,7 @@ async def test_remote_expander_skips_list_directory_when_basename_missing(
 
 @pytest.mark.asyncio
 async def test_remote_expander_uses_walk_for_trailing_slash(
-    fs_without_root, ftp_server, connection_parameters
+    ftp_server, connection_parameters
 ):
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
@@ -437,7 +445,7 @@ async def test_remote_expander_uses_walk_for_trailing_slash(
 
 @pytest.mark.asyncio
 async def test_remote_expander_list_directory_treats_target_as_directory(
-    fs_without_root, ftp_server, connection_parameters
+    ftp_server, connection_parameters
 ):
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
@@ -457,7 +465,7 @@ async def test_remote_expander_list_directory_treats_target_as_directory(
 
 @pytest.mark.asyncio
 async def test_remote_expander_walk_filters_directories(
-    fs_without_root, ftp_server, connection_parameters
+    ftp_server, connection_parameters
 ):
     home_path = pathlib.Path(ftp_server.home)
     source_directory = home_path / "data"
@@ -484,7 +492,7 @@ async def test_remote_expander_walk_filters_directories(
 
 @pytest.mark.asyncio
 async def test_remote_expander_raises_when_walk_yields_outside_root(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker, caplog
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -515,7 +523,7 @@ async def test_remote_expander_raises_when_walk_yields_outside_root(
 
 @pytest.mark.asyncio
 async def test_remote_expander_list_directory_skips_non_matching_entries(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -537,7 +545,7 @@ async def test_remote_expander_list_directory_skips_non_matching_entries(
 
 @pytest.mark.asyncio
 async def test_remote_expander_list_directory_error_bubbles_up(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker, caplog
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -561,7 +569,7 @@ async def test_remote_expander_list_directory_error_bubbles_up(
 
 @pytest.mark.asyncio
 async def test_remote_expander_walk_error_bubbles_up(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker, caplog
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -589,7 +597,7 @@ async def test_remote_expander_walk_error_bubbles_up(
 
 @pytest.mark.asyncio
 async def test_remote_expander_raises_for_relative_source(
-    connection_parameters_no_connect, ftpfs_no_connect, mocker, caplog
+    connection_parameters_no_connect, ftp_filesystem_no_connect, mocker, caplog
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
@@ -625,14 +633,16 @@ async def test_remote_expander_raises_for_prohibited_segments(
     message = "The remote path must not include relative navigation components."
     assert message in caplog.text
 
-    message = "The remote path {0!r} cannot include '.' or '..' segments.".format(
-        "/data/.."
+    message = "The remote path {0!r} cannot include {1!r} or {2!r} segments.".format(
+        "/data/..", posixpath.curdir, posixpath.pardir
     )
     assert message in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_returns_empty_for_empty_directory(fs_without_root):
+async def test_local_tree_expander_returns_empty_for_empty_directory(
+    filesystem_without_root,
+):
     source_directory = pathlib.Path("/empty")
     source_directory.mkdir()
 
@@ -647,7 +657,7 @@ async def test_local_tree_expander_returns_empty_for_empty_directory(fs_without_
 
 @pytest.mark.asyncio
 async def test_local_tree_expander_raises_when_walk_errors(
-    fs_without_root, mocker, caplog
+    filesystem_without_root, mocker, caplog
 ):
     source_directory = pathlib.Path("/root")
     source_directory.mkdir()
@@ -677,7 +687,9 @@ async def test_local_tree_expander_raises_when_walk_errors(
 
 
 @pytest.mark.asyncio
-async def test_local_tree_expander_trailing_slash_preserves_directory(fs_without_root):
+async def test_local_tree_expander_trailing_slash_preserves_directory(
+    filesystem_without_root,
+):
     source_directory = pathlib.Path("/root")
     source_directory.mkdir()
     file_path = source_directory / "a.txt"
@@ -692,7 +704,7 @@ async def test_local_tree_expander_trailing_slash_preserves_directory(fs_without
 
 @pytest.mark.asyncio
 async def test_local_tree_expander_skips_non_file_entries_from_walk(
-    fs_without_root, mocker
+    filesystem_without_root, mocker
 ):
     source_directory = pathlib.Path("/root")
     source_directory.mkdir()
