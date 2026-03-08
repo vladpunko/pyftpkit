@@ -103,7 +103,7 @@ class PycURL:
 
     def _perform_with_retries(self) -> None:
         """Runs cURL perform with retry and backoff on connection-related failures."""
-        retry_count = self._connection_parameters.retry_count
+        retry_count = self._connection_parameters.transfer_retry_count
         for attempt in range(1, retry_count + 2):
             try:
                 self._curl.perform()
@@ -113,13 +113,13 @@ class PycURL:
                 if not _is_retryable_error(err) or attempt > retry_count:
                     raise
 
-                sleep_seconds = self._connection_parameters.retry_backoff * (
+                sleep_seconds = self._connection_parameters.transfer_retry_backoff * (
                     2 ** (attempt - 1)
                 )
                 logger.warning(
                     (
                         "Connection attempt failed due to cURL error."
-                        "\nRetry %d of %d in %.5f seconds."
+                        "\nRetry %d of %d in %.3f seconds."
                     ),
                     attempt,
                     retry_count,
@@ -258,6 +258,14 @@ class PycURL:
             # that has already been closed.
             self._curl.setopt(pycurl.WRITEFUNCTION, lambda x: len(x))
 
+            # FTP transfers establish two sockets: one for the control connection and
+            # another for the data transfer. Rapidly transferring numerous small files
+            # can quickly consume available network ports, as many short-lived
+            # connections remain in the `TIME_WAIT` state.
+            pause_seconds = self._connection_parameters.transfer_pause_seconds
+            if pause_seconds > 0:
+                time.sleep(pause_seconds)
+
     def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
         """Uploads a local file to the remote FTP server.
 
@@ -365,6 +373,12 @@ class PycURL:
             self._curl.setopt(pycurl.READFUNCTION, lambda x: b"")
             self._curl.setopt(pycurl.FTP_CREATE_MISSING_DIRS, 0)
             self._curl.setopt(pycurl.UPLOAD, 0)
+
+            # Create some wiggle room so connections in the `TIME_WAIT` state
+            # have time to close.
+            pause_seconds = self._connection_parameters.transfer_pause_seconds
+            if pause_seconds > 0:
+                time.sleep(pause_seconds)
 
 
 class PycURLPoolManager:
