@@ -5,6 +5,9 @@
 
 import argparse
 
+import pydantic
+import pytest
+
 from pyftpkit.loader_settings import LoaderSettings
 
 
@@ -43,6 +46,7 @@ def test_from_arguments_ignores_none_and_uses_defaults(host, port, username, pas
         password=password,
         max_connections=None,
         timeout=None,
+        logger_interval=None,
     )
 
     settings = LoaderSettings.from_arguments(vars(namespace))
@@ -51,3 +55,34 @@ def test_from_arguments_ignores_none_and_uses_defaults(host, port, username, pas
     assert settings.connection_parameters.max_workers == 30
     assert settings.connection_parameters.timeout == 30
     assert settings.logger_interval == 10
+
+
+@pytest.mark.parametrize("logger_interval", [0, -1])
+def test_from_arguments_rejects_invalid_logger_interval(
+    host, port, username, password, logger_interval
+):
+    namespace = argparse.Namespace(
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        logger_interval=logger_interval,
+    )
+
+    with pytest.raises(pydantic.ValidationError):
+        LoaderSettings.from_arguments(vars(namespace))
+
+
+def test_from_arguments_ignores_unknown_arguments(host, port, username, password):
+    namespace = argparse.Namespace(
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        extra_option="ignored",
+    )
+
+    settings = LoaderSettings.from_arguments(vars(namespace))
+
+    assert settings.connection_parameters.host == host
+    assert not hasattr(settings, "extra_option")
