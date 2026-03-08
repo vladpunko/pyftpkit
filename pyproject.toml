@@ -167,5 +167,6 @@ exclude = [
   "docs/",
   "tests/",
 ]
+ignore = ["C901"]
 line-length = 88
 select = ["A", "B", "C", "E", "F", "N", "W"]
