@@ -42,6 +42,12 @@ def _is_retryable_error(error: pycurl.error) -> bool:
         pycurl.E_COULDNT_CONNECT,
         pycurl.E_COULDNT_RESOLVE_HOST,
         pycurl.E_COULDNT_RESOLVE_PROXY,
+        pycurl.E_FAILED_INIT,
+        pycurl.E_GOT_NOTHING,
+        pycurl.E_OPERATION_TIMEDOUT,
+        pycurl.E_PARTIAL_FILE,
+        pycurl.E_READ_ERROR,
+        pycurl.E_WRITE_ERROR,
     }
 
 

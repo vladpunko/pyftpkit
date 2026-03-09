@@ -27,6 +27,24 @@ class LoaderSettings(pydantic_settings.BaseSettings):
     logger_interval: pydantic.NonNegativeInt = pydantic.Field(
         10, gt=0, description="number of completed tasks between progress messages"
     )
+    raise_on_error: bool = pydantic.Field(
+        True, description="whether to raise as soon as a transfer error occurs"
+    )
+    max_raises: pydantic.NonNegativeInt = pydantic.Field(
+        100,
+        gt=0,
+        description="maximum number of errors allowed before aborting",
+    )
+    batch_pause_every: pydantic.NonNegativeInt = pydantic.Field(
+        3500,
+        ge=0,
+        description="transfers between pause intervals",
+    )
+    batch_pause_seconds: pydantic.NonNegativeFloat = pydantic.Field(
+        10.0,
+        ge=0,
+        description="pause duration in seconds",
+    )
 
     @classmethod
     def from_arguments(
