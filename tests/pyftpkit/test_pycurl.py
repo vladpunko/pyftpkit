@@ -453,6 +453,49 @@ def test_download_returns_without_attempts_for_negative_retry_count(
     pycurl_mock.return_value.perform.assert_not_called()
 
 
+def test_download_does_not_retry_for_non_integer_error_code(
+    caplog, connection_parameters, pycurl_mock, mocker
+):
+    connection_parameters.transfer_retry_count = 1
+    connection_parameters.transfer_retry_backoff = 0.01
+    pycurl_client = PycURL(connection_parameters=connection_parameters)
+
+    pycurl_mock.return_value.perform.side_effect = pycurl.error(
+        "non-integer error code"
+    )
+    sleep_mock = mocker.patch("pyftpkit._pycurl.time.sleep")
+
+    with pytest.raises(pycurl.error) as error:
+        pycurl_client._perform_with_retries()
+
+    assert caplog.text == ""
+    assert pycurl_mock.return_value.perform.call_count == 1
+    sleep_mock.assert_not_called()
+    message = "non-integer error code"
+    assert message in str(error.value)
+
+
+def test_download_raises_without_retry_for_zero_retry_count(
+    caplog, connection_parameters, pycurl_mock, mocker
+):
+    connection_parameters.transfer_retry_count = 0
+    pycurl_client = PycURL(connection_parameters=connection_parameters)
+
+    pycurl_mock.return_value.perform.side_effect = pycurl.error(
+        pycurl.E_COULDNT_CONNECT, "connect failed"
+    )
+    sleep_mock = mocker.patch("pyftpkit._pycurl.time.sleep")
+
+    with pytest.raises(pycurl.error) as error:
+        pycurl_client._perform_with_retries()
+
+    assert caplog.text == ""
+    assert pycurl_mock.return_value.perform.call_count == 1
+    sleep_mock.assert_not_called()
+    message = "connect failed"
+    assert message in str(error.value)
+
+
 def test_download_sleeps_between_transfers_to_reduce_time_wait(
     filesystem_without_root, connection_parameters, pycurl_mock, mocker
 ):

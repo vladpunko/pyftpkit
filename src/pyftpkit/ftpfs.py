@@ -555,7 +555,7 @@ class FTPFileSystem:
                     if not isinstance(err, ftplib.error_perm):
                         logger.exception("Failed to validate the remote directory.")
                         raise FTPError(
-                            f"Failed to access remote directory: {dirpath!r}."
+                            f"Failed to access remote directory: {dirpath!r}"
                         ) from err
 
                     try:
@@ -579,7 +579,7 @@ class FTPFileSystem:
                                 "Creation of the remote directory did not succeed."
                             )
                             raise FTPError(
-                                f"Remote directory setup failed: {dirpath!r}."
+                                f"Remote directory setup failed: {dirpath!r}"
                             ) from err
 
                     except ftplib.all_errors as err:
@@ -594,7 +594,7 @@ class FTPFileSystem:
                                 "The remote directory could not be initialized."
                             )
                             raise FTPError(
-                                f"FTP server directory creation failed: {dirpath!r}."
+                                f"FTP server directory creation failed: {dirpath!r}"
                             ) from err
 
     @makedirs.register(os.PathLike)

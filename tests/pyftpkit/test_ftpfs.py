@@ -1204,7 +1204,7 @@ async def test_makedirs_current_working_directory_non_permission_error(
     message = "Failed to validate the remote directory."
     assert message in caplog.text
 
-    message = "Failed to access remote directory: {0!r}.".format(path)
+    message = "Failed to access remote directory: {0!r}".format(path)
     assert message in str(error.value)
 
 
@@ -1230,7 +1230,7 @@ async def test_makedirs_make_directory_permission_error_current_working_director
     message = "Creation of the remote directory did not succeed."
     assert message in caplog.text
 
-    message = "Remote directory setup failed: {0!r}.".format(path)
+    message = "Remote directory setup failed: {0!r}".format(path)
     assert message in str(error.value)
 
 
@@ -1256,7 +1256,7 @@ async def test_makedirs_make_directory_non_permission_error_current_directory_fa
     message = "The remote directory could not be initialized."
     assert message in caplog.text
 
-    message = "FTP server directory creation failed: {0!r}.".format(path)
+    message = "FTP server directory creation failed: {0!r}".format(path)
     assert message in str(error.value)
 
 
@@ -1322,7 +1322,7 @@ async def test_makedirs_no_permission(caplog, ftp_server):
     message = "Creation of the remote directory did not succeed."
     assert message in caplog.text
 
-    message = "Remote directory setup failed: {0!r}.".format(path)
+    message = "Remote directory setup failed: {0!r}".format(path)
     assert message in str(error.value)
 
 

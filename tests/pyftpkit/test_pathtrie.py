@@ -51,6 +51,28 @@ def test_insert_adds_expected_paths(paths, expected_paths):
         assert path == expected_path
 
 
+def test_insert_rejects_none_path(caplog):
+    trie = PathTrie()
+
+    with pytest.raises(TypeError) as error:
+        trie.insert(None)
+
+    assert caplog.text == ""
+    message = "incompatible function arguments"
+    assert message in str(error.value)
+
+
+def test_insert_rejects_integer_path(caplog):
+    trie = PathTrie()
+
+    with pytest.raises(TypeError) as error:
+        trie.insert(123)
+
+    assert caplog.text == ""
+    message = "incompatible function arguments"
+    assert message in str(error.value)
+
+
 def test_iterator_returns_deterministic_order():
     trie = PathTrie()
     trie.insert("/b/2")
