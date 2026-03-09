@@ -151,7 +151,7 @@ def test_download_no_permissions(caplog, filesystem_without_root, pycurl_instanc
     restricted_directory.mkdir()
     restricted_directory.chmod(0o000)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             pycurl_instance.download(
                 "/test.txt",
@@ -288,7 +288,7 @@ def test_download_pathlike_source_and_destination(
 def test_download_validation_type_errors(
     caplog, pycurl_instance, source_path, destination_path
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             pycurl_instance.download(source_path, destination_path)
 
@@ -319,7 +319,7 @@ def test_download_validation_type_errors(
 def test_download_validation_source_value_errors(
     caplog, pycurl_instance, source_path, destination_path
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             pycurl_instance.download(source_path, destination_path)
 
@@ -340,7 +340,7 @@ def test_download_validation_source_value_errors(
 def test_download_validation_destination_value_errors(
     caplog, pycurl_instance, source_path, destination_path
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             pycurl_instance.download(source_path, destination_path)
 
@@ -354,7 +354,7 @@ def test_download_validation_destination_value_errors(
 def test_download_validation_no_root_slash(caplog, pycurl_instance):
     relative_source_path = "src"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathNotAbsoluteError) as error:
             pycurl_instance.download(relative_source_path, "dst")
 
@@ -401,7 +401,7 @@ def test_download_with_error(
 
     pycurl_mock.return_value.perform.side_effect = pycurl.error()
     sleep_mock = mocker.patch("pyftpkit._pycurl.time.sleep")
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPError) as error:
             pycurl_instance.download(remote_source_path, str(local_destination_path))
 
@@ -483,7 +483,7 @@ def test_download_resets_write_function_on_error(
         "simulated download failure from test"
     )
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPError) as error:
             pycurl_client.download(remote_source_path, str(local_destination_path))
 
@@ -514,7 +514,7 @@ def test_download_with_filesystem_error(
     local_destination_path.mkdir()
     local_destination_path = str(local_destination_path)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             pycurl_instance.download(remote_source_path, local_destination_path)
 
@@ -645,7 +645,7 @@ def test_upload_with_error(
         "simulated upload failure from test"
     )
     sleep_mock = mocker.patch("pyftpkit._pycurl.time.sleep")
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPError) as error:
             pycurl_instance.upload(str(local_source_path), remote_destination_path)
 
@@ -715,7 +715,7 @@ def test_upload_resets_transfer_options_on_error(
         "simulated upload failure from test"
     )
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPError) as error:
             pycurl_client.upload(str(local_source_path), remote_destination_path)
 
@@ -762,7 +762,7 @@ def test_upload_with_filesystem_error(
     if prepare == "mkdir":
         source_path.mkdir()
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             pycurl_instance.upload(str(source_path), remote_destination_path)
 
@@ -784,7 +784,7 @@ def test_upload_with_filesystem_error(
 def test_upload_validation_type_errors(
     caplog, pycurl_instance, source_path, destination_path
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             pycurl_instance.upload(source_path, destination_path)
 
@@ -815,7 +815,7 @@ def test_upload_validation_type_errors(
 def test_upload_validation_source_value_errors(
     caplog, pycurl_instance, source_path, destination_path
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             pycurl_instance.upload(source_path, destination_path)
 
@@ -836,7 +836,7 @@ def test_upload_validation_source_value_errors(
 def test_upload_validation_destination_value_errors(
     caplog, pycurl_instance, source_path, destination_path
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             pycurl_instance.upload(source_path, destination_path)
 
@@ -850,7 +850,7 @@ def test_upload_validation_destination_value_errors(
 def test_upload_validation_no_root_slash(caplog, pycurl_instance):
     relative_destination_path = "dst"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathNotAbsoluteError) as error:
             pycurl_instance.upload("src", relative_destination_path)
 

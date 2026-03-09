@@ -37,7 +37,7 @@ def test_connection_parameters_reject_invalid_values(
     }
     payload[field] = value
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(pydantic.ValidationError) as error:
             ConnectionParameters.model_validate(payload)
 

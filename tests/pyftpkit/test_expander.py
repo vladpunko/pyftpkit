@@ -80,7 +80,7 @@ async def test_local_tree_expander_rejects_bytes_paths(caplog):
     expander = LocalTreeExpander()
 
     path = b"/data"
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(expander.expand(path, "/dst"))
 
@@ -98,7 +98,7 @@ async def test_local_tree_expander_rejects_non_string_paths(caplog):
     expander = LocalTreeExpander()
 
     path = 123
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(expander.expand(path, "/dst"))
 
@@ -114,7 +114,7 @@ async def test_local_tree_expander_rejects_bytes_destination(caplog):
     expander = LocalTreeExpander()
 
     path = b"/dst"
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(expander.expand("/missing", path))
 
@@ -162,7 +162,7 @@ async def test_local_tree_expander_raises_for_missing_source(
     expander = LocalTreeExpander()
 
     source_path = "/missing"
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand(source_path, "/dst"))
 
@@ -186,7 +186,7 @@ async def test_local_tree_expander_raises_for_symlink_source(
 
     expander = LocalTreeExpander()
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand(str(source_path), "/dst"))
 
@@ -239,7 +239,7 @@ async def test_local_tree_expander_raises_for_file_with_trailing_slash(
 
     expander = LocalTreeExpander()
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand("/a.txt/", "/dst"))
 
@@ -508,7 +508,7 @@ async def test_remote_expander_raises_when_walk_yields_outside_root(
     )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand("/data", "/dst"))
 
@@ -559,7 +559,7 @@ async def test_remote_expander_list_directory_error_bubbles_up(
     )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand("/data/file.txt", "/dst"))
 
@@ -587,7 +587,7 @@ async def test_remote_expander_walk_error_bubbles_up(
     )
     mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk", new=_walk)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand("/data", "/dst"))
 
@@ -609,7 +609,7 @@ async def test_remote_expander_raises_for_relative_source(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
     )
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathNotAbsoluteError) as error:
             await _drain_async_iterator(expander.expand("data", "/dst"))
 
@@ -626,7 +626,7 @@ async def test_remote_expander_raises_for_prohibited_segments(
 ):
     expander = RemoteFTPExpander(connection_parameters=connection_parameters)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(expander.expand("/data/../escape", "/dst"))
 
@@ -675,7 +675,7 @@ async def test_local_tree_expander_raises_when_walk_errors(
 
     mocker.patch("pyftpkit._paths_resolver.expander.os.walk", new=_walk)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(expander.expand("/root", "/dst"))
 

@@ -10,6 +10,7 @@ import ftplib
 import logging
 import os
 import pathlib
+import posixpath
 import random
 import types
 import uuid
@@ -56,7 +57,7 @@ def directory_tree(ftp_server):
 
         for _ in range(10):
             path = directory_path / str(uuid.uuid4())
-            path.write_text("")
+            path.write_text("", encoding="utf-8")
             non_directories.append(path)
 
     for _ in range(10):
@@ -68,7 +69,7 @@ def directory_tree(ftp_server):
 
         for _ in range(10):
             path = parent / str(uuid.uuid4())
-            path.write_text("")
+            path.write_text("", encoding="utf-8")
             non_directories.append(path)
 
     return types.SimpleNamespace(
@@ -82,6 +83,7 @@ def directory_tree(ftp_server):
 
 
 async def list_directory(ftp_filesystem, path):
+    """Helper to collect listdir output."""
     directories = []
     non_directories = []
 
@@ -100,9 +102,7 @@ async def drain_async_iterator(iterator):
 
 
 @pytest.mark.asyncio
-async def test_list_directory(
-    fs_without_root, caplog, ftp_server, connection_parameters
-):
+async def test_list_directory(caplog, ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
     root = pathlib.Path(ftp_server.root)
 
@@ -117,7 +117,7 @@ async def test_list_directory(
     for _ in range(3):
         name = str(uuid.uuid4())
         path = home / name
-        path.write_text("")
+        path.write_text("", encoding="utf-8")
         expected_non_directories.append(root / name)
 
     async with FTPFileSystem(
@@ -138,15 +138,41 @@ async def test_list_directory(
 
 
 @pytest.mark.asyncio
-async def test_list_directory_with_error(
-    fs_without_root, caplog, ftp_server, connection_parameters
+async def test_list_directory_accepts_pathlike_root(
+    caplog, ftp_server, connection_parameters
 ):
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+    (home / "dir").mkdir()
+    (home / "file.txt").write_text("", encoding="utf-8")
+
+    directories = []
+    non_directories = []
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            async for entry_type, entry_path in ftp_filesystem.listdir(root):
+                if entry_type == FTPEntryType.DIRECTORY:
+                    directories.append(entry_path)
+                else:
+                    non_directories.append(entry_path)
+
+    assert set(directories) == {str(root / "dir")}
+    assert set(non_directories) == {str(root / "file.txt")}
+    message = "Listing remote directory: {0!r}".format(str(root))
+    assert message in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_list_directory_with_error(caplog, ftp_server, connection_parameters):
     path = pathlib.Path(ftp_server.root) / "noop"
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await list_directory(ftp_filesystem, path)
 
@@ -159,7 +185,7 @@ async def test_list_directory_with_error(
 
 @pytest.mark.asyncio
 async def test_list_directory_invalid_path(
-    fs_without_root, caplog, host, port, username, password, mocker
+    caplog, host, port, username, password, mocker
 ):
     connection_parameters = ConnectionParameters.model_validate(
         {
@@ -185,7 +211,7 @@ async def test_list_directory_invalid_path(
         mocker.patch.object(ftp_filesystem, "_pool", mocker.MagicMock(acquire=_acquire))
 
         path = {}
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await drain_async_iterator(ftp_filesystem.listdir(path))
 
@@ -199,7 +225,7 @@ async def test_list_directory_invalid_path(
         assert message in str(error.value)
 
         path = "\t\t"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await drain_async_iterator(ftp_filesystem.listdir(path))
 
@@ -210,7 +236,7 @@ async def test_list_directory_invalid_path(
         assert message in str(error.value)
 
         path = "not/from/root"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathNotAbsoluteError) as error:
                 await drain_async_iterator(ftp_filesystem.listdir(path))
 
@@ -222,9 +248,26 @@ async def test_list_directory_invalid_path(
 
 
 @pytest.mark.asyncio
-async def test_list_directory_trailing_whitespace(
-    fs_without_root, ftp_server, connection_parameters
-):
+async def test_list_directory_relative_segments(caplog, connection_parameters):
+    path = "/root/../escape"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await list_directory(ftp_filesystem, path)
+
+    message = "The remote path must not include relative navigation components."
+    assert message in caplog.text
+
+    message = "The remote path {0!r} cannot include {1!r} or {2!r} segments.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_list_directory_trailing_whitespace(ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
     root = pathlib.Path(ftp_server.root)
 
@@ -235,7 +278,7 @@ async def test_list_directory_trailing_whitespace(
     target_directory = home / directory_name
     target_directory.mkdir()
     (target_directory / subdirectory_name).mkdir()
-    (target_directory / file_name).write_text("")
+    (target_directory / file_name).write_text("", encoding="utf-8")
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -250,13 +293,13 @@ async def test_list_directory_trailing_whitespace(
 
 @pytest.mark.asyncio
 async def test_list_directory_special_symbols(
-    fs_without_root, ftp_server, connection_parameters, filenames_with_symbols
+    ftp_server, connection_parameters, filenames_with_symbols
 ):
     home = pathlib.Path(ftp_server.home)
     root = pathlib.Path(ftp_server.root)
 
     for index, name in enumerate(filenames_with_symbols):
-        (home / name).write_text("content # {0!s}".format(index))
+        (home / name).write_text("content # {0!s}".format(index), encoding="utf-8")
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -269,10 +312,10 @@ async def test_list_directory_special_symbols(
 
 @pytest.mark.asyncio
 async def test_list_directory_parse_error_wrapped(
-    fs_without_root, caplog, mocker, connection_parameters
+    caplog, mocker, connection_parameters
 ):
     async def _listdir(*args, **kwargs):
-        raise KeyError("error")
+        raise KeyError("listing parser failure")
         yield
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
@@ -281,7 +324,7 @@ async def test_list_directory_parse_error_wrapped(
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await drain_async_iterator(ftp_filesystem.listdir(path))
 
@@ -293,9 +336,7 @@ async def test_list_directory_parse_error_wrapped(
 
 
 @pytest.mark.asyncio
-async def test_list_directory_bad_entry(
-    fs_without_root, mocker, ftp_server, connection_parameters
-):
+async def test_list_directory_bad_entry(mocker, ftp_server, connection_parameters):
     root = pathlib.Path(ftp_server.root)
     entries = [
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 dir",
@@ -325,7 +366,7 @@ async def test_list_directory_bad_entry(
 
 @pytest.mark.asyncio
 async def test_list_directory_name_with_symlink_token_preserved(
-    fs_without_root, mocker, ftp_server, connection_parameters
+    mocker, ftp_server, connection_parameters
 ):
     root = pathlib.Path(ftp_server.root)
     entries = [
@@ -344,7 +385,73 @@ async def test_list_directory_name_with_symlink_token_preserved(
 
 
 @pytest.mark.asyncio
-async def test_walk(fs_without_root, ftp_server, directory_tree, connection_parameters):
+async def test_list_directory_skips_absolute_entries(
+    mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entries = [
+        "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 /absdir",
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 file.txt",
+    ]
+    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
+    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        directories, non_directories = await list_directory(ftp_filesystem, root)
+
+    assert directories == []
+    assert non_directories == [str(root / "file.txt")]
+
+
+@pytest.mark.asyncio
+async def test_list_directory_skips_empty_name(
+    mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entries = [
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 ",
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 valid.txt",
+    ]
+    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
+    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        directories, non_directories = await list_directory(ftp_filesystem, root)
+
+    assert directories == []
+    assert non_directories == [str(root / "valid.txt")]
+
+
+@pytest.mark.asyncio
+async def test_list_directory_skips_entries_with_separators(
+    mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entries = [
+        "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 bad/dir",
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 bad\\file.txt",
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 good.txt",
+    ]
+    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
+    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        directories, non_directories = await list_directory(ftp_filesystem, root)
+
+    assert directories == []
+    assert non_directories == [str(root / "good.txt")]
+
+
+@pytest.mark.asyncio
+async def test_walk_traverses_directory_tree(
+    ftp_server, directory_tree, connection_parameters
+):
     root = pathlib.Path(ftp_server.root)
     collected_dirs = []
     collected_nondirs = []
@@ -368,8 +475,26 @@ async def test_walk(fs_without_root, ftp_server, directory_tree, connection_para
 
 
 @pytest.mark.asyncio
+async def test_walk_accepts_pathlike_root(ftp_server, connection_parameters):
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+    (home / "dir").mkdir()
+    (home / "dir" / "file.txt").write_text("", encoding="utf-8")
+
+    collected = []
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        async for _, entry_type, entry_path in ftp_filesystem.walk(root):
+            collected.append((entry_type, entry_path))
+
+    assert (FTPEntryType.DIRECTORY, str(root / "dir")) in collected
+    assert (FTPEntryType.FILE, str(root / "dir" / "file.txt")) in collected
+
+
+@pytest.mark.asyncio
 async def test_walk_no_permission(
-    fs_without_root,
     caplog,
     ftp_server,
     connection_parameters,
@@ -378,7 +503,7 @@ async def test_walk_no_permission(
     root = pathlib.Path(ftp_server.root)
 
     async def _listdir(*args, **kwargs):
-        raise PermissionError("error")
+        raise PermissionError("permission denied during listing")
         yield
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
@@ -386,7 +511,7 @@ async def test_walk_no_permission(
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(RuntimeError) as error:
                 async for _, _, _ in ftp_filesystem.walk(str(root)):
                     pass
@@ -399,12 +524,12 @@ async def test_walk_no_permission(
 
 
 @pytest.mark.asyncio
-async def test_walk_invalid_path(fs_without_root, caplog, connection_parameters):
+async def test_walk_invalid_path(caplog, connection_parameters):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
         path = {}
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await drain_async_iterator(ftp_filesystem.walk(path))
 
@@ -418,7 +543,7 @@ async def test_walk_invalid_path(fs_without_root, caplog, connection_parameters)
         assert message in str(error.value)
 
         path = "\t\t"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await drain_async_iterator(ftp_filesystem.walk(path))
 
@@ -429,7 +554,7 @@ async def test_walk_invalid_path(fs_without_root, caplog, connection_parameters)
         assert message in str(error.value)
 
         path = "not/from/root"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathNotAbsoluteError) as error:
                 await drain_async_iterator(ftp_filesystem.walk(path))
 
@@ -441,9 +566,26 @@ async def test_walk_invalid_path(fs_without_root, caplog, connection_parameters)
 
 
 @pytest.mark.asyncio
-async def test_walk_trailing_whitespace(
-    fs_without_root, ftp_server, connection_parameters
-):
+async def test_walk_relative_segments(caplog, connection_parameters):
+    path = "/root/../escape"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await drain_async_iterator(ftp_filesystem.walk(path))
+
+    message = "The remote path must not contain directory traversal segments."
+    assert message in caplog.text
+
+    message = "The remote path {0!r} must not reference {1!r} or {2!r}.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_walk_trailing_whitespace(ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
     root = pathlib.Path(ftp_server.root)
     directory_name = "dir  "
@@ -453,10 +595,10 @@ async def test_walk_trailing_whitespace(
 
     root_directory = home / directory_name
     root_directory.mkdir()
-    (root_directory / file_name).write_text("")
+    (root_directory / file_name).write_text("", encoding="utf-8")
     subdirectory = root_directory / subdirectory_name
     subdirectory.mkdir()
-    (subdirectory / nested_name).write_text("")
+    (subdirectory / nested_name).write_text("", encoding="utf-8")
 
     collected_dirs = []
     collected_nondirs = []
@@ -483,10 +625,8 @@ async def test_walk_trailing_whitespace(
 
 
 @pytest.mark.asyncio
-async def test_walk_queue_full_does_not_hang(
-    fs_without_root, mocker, connection_parameters
-):
-    class QueueWrapper(asyncio.Queue):
+async def test_walk_queue_full_does_not_hang(mocker, connection_parameters, caplog):
+    class _QueueWrapper(asyncio.Queue):
         def __init__(self, *args, raise_on_put_nowait=True, **kwargs):
             super().__init__(*args, **kwargs)
 
@@ -498,64 +638,328 @@ async def test_walk_queue_full_does_not_hang(
 
             return super().put_nowait(item)
 
-    def queue_factory(*args, **kwargs):
-        return QueueWrapper(*args, **kwargs)
+    def _queue_factory(*args, **kwargs):
+        return _QueueWrapper(*args, **kwargs)
 
     async def _listdir(*args, **kwargs):
-        raise RuntimeError("error")
+        raise RuntimeError("listing worker failed")
         yield
 
-    mocker.patch("pyftpkit.ftpfs.asyncio.Queue", side_effect=queue_factory)
+    mocker.patch("pyftpkit.ftpfs.asyncio.Queue", side_effect=_queue_factory)
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
 
     path = "/"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        await asyncio.wait_for(
-            drain_async_iterator(ftp_filesystem.walk(path)), timeout=2
-        )
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await asyncio.wait_for(
+                    drain_async_iterator(ftp_filesystem.walk(path)), timeout=2
+                )
+
+    message = "An unexpected error occurred at this program runtime."
+    assert message in caplog.text
+    assert "Walk worker error." in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_walk_was_cancelled(fs_without_root, connection_parameters):
+async def test_walk_was_cancelled(connection_parameters, caplog):
     path = "/"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
         task = asyncio.create_task(drain_async_iterator(ftp_filesystem.walk(path)))
         await asyncio.sleep(0.01)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        with caplog.at_level(logging.WARNING, logger="pyftpkit"):
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError) as error:
+                await task
+
+    assert str(error.value) == ""
+    assert caplog.text == ""
 
 
 @pytest.mark.asyncio
-async def test_walk_worker_error_propagates(
-    fs_without_root, mocker, connection_parameters
-):
-    async def delayed_error(*args, **kwargs):
-        await asyncio.sleep(0.05)
-        raise RuntimeError("error")
-        yield
+async def test_walk_cancel_timeout_logs_warning(mocker, connection_parameters, caplog):
+    async def _slow_listdir(*args, **kwargs):
+        await asyncio.sleep(10)
+        if False:
+            yield
 
-    mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=delayed_error)
+    real_wait_for = asyncio.wait_for
+
+    async def _fake_wait_for(awaitable, timeout, *args, **kwargs):
+        if timeout == 0.1 and not asyncio.iscoroutine(awaitable):
+            raise asyncio.TimeoutError
+        return await real_wait_for(awaitable, timeout, *args, **kwargs)
+
+    mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_slow_listdir)
+    mocker.patch("pyftpkit.ftpfs.asyncio.wait_for", new=_fake_wait_for)
 
     path = "/"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with pytest.raises(RuntimeError) as error:
-            await drain_async_iterator(ftp_filesystem.walk(path))
+        task = asyncio.create_task(drain_async_iterator(ftp_filesystem.walk(path)))
+        await asyncio.sleep(0.05)
+        with caplog.at_level(logging.WARNING, logger="pyftpkit"):
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError) as error:
+                await task
 
+    assert str(error.value) == ""
+    message = "The walk operation was cancelled."
+    assert message in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_walk_worker_error_propagates(mocker, connection_parameters, caplog):
+    async def _delayed_error(*args, **kwargs):
+        await asyncio.sleep(0.05)
+        raise RuntimeError("listing worker failed")
+        yield
+
+    mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_delayed_error)
+
+    path = "/"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await drain_async_iterator(ftp_filesystem.walk(path))
+
+    message = "An unexpected error occurred at this program runtime."
+    assert message in caplog.text
     assert "Walk worker error." in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_walk_stop_event_breaks_worker(
-    fs_without_root, connection_parameters, mocker
+async def test_walk_worker_error_propagates_when_output_queue_full(
+    mocker, connection_parameters, caplog
 ):
-    class AlwaysSetEvent(asyncio.Event):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_workers": 1, "max_queues_size": 1}
+    )
+
+    async def _listdir(*args, **kwargs):
+        raise RuntimeError("output queue worker failed")
+        if False:
+            yield
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        original_put_nowait = asyncio.Queue.put_nowait
+
+        def _put_nowait(self, item):
+            if isinstance(item, Exception):
+                raise asyncio.QueueFull()
+            return original_put_nowait(self, item)
+
+        mocker.patch("asyncio.Queue.put_nowait", new=_put_nowait)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await drain_async_iterator(ftp_filesystem.walk("/root"))
+
+    message = "An unexpected error occurred at this program runtime."
+    assert message in caplog.text
+    assert "Walk worker error." in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_walk_exception_items_mark_task_done(
+    mocker, connection_parameters, caplog
+):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_workers": 1, "max_queues_size": 1}
+    )
+
+    class _QueueSpy(asyncio.Queue):
+        created = []
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            _QueueSpy.created.append(self)
+
+    async def _listdir(*args, **kwargs):
+        raise RuntimeError("listing failed for queued item")
+        if False:
+            yield
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", new=_QueueSpy)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await drain_async_iterator(ftp_filesystem.walk("/root"))
+
+    message = "An unexpected error occurred at this program runtime."
+    assert message in caplog.text
+
+    message = "Walk worker error."
+    assert message in str(error.value)
+
+    assert len(_QueueSpy.created) >= 2
+    output_queue = _QueueSpy.created[1]
+    assert output_queue._unfinished_tasks == 0
+
+
+@pytest.mark.asyncio
+async def test_walk_output_queue_full_fails_fast(
+    mocker, host, port, username, password, caplog
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 1,
+            "max_workers": 1,
+            "max_queues_size": 1,
+        }
+    )
+
+    class _QueueWrapper(asyncio.Queue):
+        def put_nowait(self, item):
+            if isinstance(item, tuple):
+                raise asyncio.QueueFull()
+            return super().put_nowait(item)
+
+    async def _listdir(*args, **kwargs):
+        yield (FTPEntryType.FILE, "/root/file.txt")
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", new=_QueueWrapper)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await drain_async_iterator(ftp_filesystem.walk("/root"))
+
+    message = "An unexpected error occurred at this program runtime."
+    assert message in caplog.text
+    assert "Walk worker error." in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_walk_generator_close_does_not_raise(mocker, connection_parameters):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_workers": 1, "max_queues_size": 10}
+    )
+
+    async def _listdir(*args, **kwargs):
+        for index in range(5):
+            yield (FTPEntryType.FILE, f"/root/file{index}.txt")
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+        iterator = ftp_filesystem.walk("/root")
+        await anext(iterator)
+        await asyncio.sleep(0.05)
+        await iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_walk_cancels_join_task_on_close(mocker, connection_parameters):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_workers": 1, "max_queues_size": 1}
+    )
+    join_tasks = []
+    original_create_task = asyncio.create_task
+
+    class _QueueJoinSpy(asyncio.Queue):
+        async def join(self):
+            future = asyncio.get_running_loop().create_future()
+            return await future
+
+    def _create_task_spy(coroutine, *args, **kwargs):
+        task = original_create_task(coroutine, *args, **kwargs)
+        if getattr(coroutine, "cr_code", None) and coroutine.cr_code.co_name == "join":
+            join_tasks.append(task)
+        return task
+
+    async def _listdir(*args, **kwargs):
+        yield (FTPEntryType.FILE, "/root/file.txt")
+        await asyncio.sleep(1)
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", new=_QueueJoinSpy)
+        mocker.patch("pyftpkit.ftpfs.asyncio.create_task", new=_create_task_spy)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+
+        iterator = ftp_filesystem.walk("/root")
+        await anext(iterator)
+        await iterator.aclose()
+
+    assert join_tasks
+    assert all(task.cancelled() or task.done() for task in join_tasks)
+
+
+@pytest.mark.asyncio
+async def test_walk_stop_event_breaks_worker(connection_parameters, mocker):
+    class _AlwaysSetEvent(asyncio.Event):
         def is_set(self):
             return True
 
@@ -564,7 +968,7 @@ async def test_walk_stop_event_breaks_worker(
         return
         yield
 
-    mocker.patch("pyftpkit.ftpfs.asyncio.Event", new=AlwaysSetEvent)
+    mocker.patch("pyftpkit.ftpfs.asyncio.Event", new=_AlwaysSetEvent)
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
 
     path = "/"
@@ -575,10 +979,8 @@ async def test_walk_stop_event_breaks_worker(
 
 
 @pytest.mark.asyncio
-async def test_walk_stop_event_breaks_main_loop(
-    fs_without_root, connection_parameters, mocker
-):
-    class QueueWrapper(asyncio.Queue):
+async def test_walk_stop_event_breaks_main_loop(connection_parameters, mocker, caplog):
+    class _QueueWrapper(asyncio.Queue):
         def put_nowait(self, item):
             if isinstance(item, Exception):
                 raise asyncio.QueueFull()
@@ -597,35 +999,40 @@ async def test_walk_stop_event_breaks_main_loop(
                 awaitable.close()
             raise
 
-    async def _listdir(*args, path, **kwargs):
+    async def _listdir(*args, **kwargs):
+        path = args[1]
         if path == "/":
             yield (FTPEntryType.DIRECTORY, "/subdir1")
             yield (FTPEntryType.DIRECTORY, "/subdir2")
             await asyncio.sleep(0.05)
             return
-        raise RuntimeError("error")
+        raise RuntimeError("listing failed for subdirectory")
         yield
 
     path = "/"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", new=QueueWrapper)
+        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", new=_QueueWrapper)
         mocker.patch("pyftpkit.ftpfs.asyncio.wait_for", new=_slow_wait_for)
         mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
 
-        await drain_async_iterator(ftp_filesystem.walk(path))
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await drain_async_iterator(ftp_filesystem.walk(path))
+
+    message = "An unexpected error occurred at this program runtime."
+    assert message in caplog.text
+    assert "Walk worker error." in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_walk_drain_output_queue(
-    fs_without_root, mocker, ftp_server, connection_parameters
-):
+async def test_walk_drain_output_queue(mocker, ftp_server, connection_parameters):
     root = pathlib.Path(ftp_server.root)
     directory_path = pathlib.Path(ftp_server.home) / "test"
     directory_path.mkdir()
     path = directory_path / "text.txt"
-    path.write_text("")
+    path.write_text("", encoding="utf-8")
 
     expected_directory = str(root / "test")
     expected_output = (
@@ -673,12 +1080,12 @@ async def test_walk_drain_output_queue(
 
 
 @pytest.mark.asyncio
-async def test_makedirs_invalid_paths(fs_without_root, caplog, connection_parameters):
+async def test_makedirs_invalid_paths(caplog, connection_parameters):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
         paths = object()
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(TypeError) as error:
                 await ftp_filesystem.makedirs(paths)
 
@@ -694,7 +1101,7 @@ async def test_makedirs_invalid_paths(fs_without_root, caplog, connection_parame
         assert message in str(error.value)
 
         path = {}
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await ftp_filesystem.makedirs([path])
 
@@ -708,7 +1115,7 @@ async def test_makedirs_invalid_paths(fs_without_root, caplog, connection_parame
         assert message in str(error.value)
 
         path = "\t\t"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await ftp_filesystem.makedirs([path])
 
@@ -719,7 +1126,7 @@ async def test_makedirs_invalid_paths(fs_without_root, caplog, connection_parame
         assert message in str(error.value)
 
         path = "not/from/root"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathNotAbsoluteError) as error:
                 await ftp_filesystem.makedirs([path])
 
@@ -731,9 +1138,40 @@ async def test_makedirs_invalid_paths(fs_without_root, caplog, connection_parame
 
 
 @pytest.mark.asyncio
-async def test_makedirs_trailing_whitespace(
-    fs_without_root, ftp_server, connection_parameters
-):
+async def test_makedirs_accepts_pathlike_entries(ftp_server, connection_parameters):
+    home = pathlib.Path(ftp_server.home)
+    path = pathlib.Path("/alpha/beta")
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        await ftp_filesystem.makedirs([path])
+
+    assert (home / "alpha").is_dir()
+    assert (home / "alpha" / "beta").is_dir()
+
+
+@pytest.mark.asyncio
+async def test_makedirs_relative_segments(caplog, connection_parameters):
+    path = "/root/../escape"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.makedirs([path])
+
+    message = "The remote path must not include relative traversal markers."
+    assert message in caplog.text
+
+    message = "The path {0!r} must not reference {1!r} or {2!r}.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_makedirs_trailing_whitespace(ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
 
     async with FTPFileSystem(
@@ -749,15 +1187,17 @@ async def test_makedirs_trailing_whitespace(
 
 @pytest.mark.asyncio
 async def test_makedirs_current_working_directory_non_permission_error(
-    fs_without_root, caplog, mocker, connection_parameters
+    caplog, mocker, connection_parameters
 ):
-    mocker.patch("pyftpkit.ftpfs.FTP.cwd", side_effect=ftplib.error_temp("tmp"))
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.cwd", side_effect=ftplib.error_temp("temporary failure")
+    )
 
     path = "/test"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.makedirs([path])
 
@@ -770,16 +1210,20 @@ async def test_makedirs_current_working_directory_non_permission_error(
 
 @pytest.mark.asyncio
 async def test_makedirs_make_directory_permission_error_current_working_directory_fails(
-    fs_without_root, caplog, mocker, connection_parameters
+    caplog, mocker, connection_parameters
 ):
-    mocker.patch("pyftpkit.ftpfs.FTP.cwd", side_effect=ftplib.error_perm("perm"))
-    mocker.patch("pyftpkit.ftpfs.FTP.mkd", side_effect=ftplib.error_perm("perm"))
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.cwd", side_effect=ftplib.error_perm("permission denied")
+    )
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.mkd", side_effect=ftplib.error_perm("permission denied")
+    )
 
     path = "/test"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.makedirs([path])
 
@@ -792,16 +1236,20 @@ async def test_makedirs_make_directory_permission_error_current_working_director
 
 @pytest.mark.asyncio
 async def test_makedirs_make_directory_non_permission_error_current_directory_fails(
-    fs_without_root, caplog, mocker, connection_parameters
+    caplog, mocker, connection_parameters
 ):
-    mocker.patch("pyftpkit.ftpfs.FTP.cwd", side_effect=ftplib.error_perm("perm"))
-    mocker.patch("pyftpkit.ftpfs.FTP.mkd", side_effect=ftplib.error_temp("tmp"))
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.cwd", side_effect=ftplib.error_perm("permission denied")
+    )
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.mkd", side_effect=ftplib.error_temp("temporary failure")
+    )
 
     path = "/test"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.makedirs([path])
 
@@ -813,7 +1261,7 @@ async def test_makedirs_make_directory_non_permission_error_current_directory_fa
 
 
 @pytest.mark.asyncio
-async def test_makedirs(fs_without_root, caplog, ftp_server, connection_parameters):
+async def test_makedirs_creates_directories(caplog, ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -850,7 +1298,7 @@ async def test_makedirs(fs_without_root, caplog, ftp_server, connection_paramete
 
 
 @pytest.mark.asyncio
-async def test_makedirs_no_permission(fs_without_root, caplog, ftp_server):
+async def test_makedirs_no_permission(caplog, ftp_server):
     path = "/test"
 
     connection_parameters = ConnectionParameters.model_validate(
@@ -867,7 +1315,7 @@ async def test_makedirs_no_permission(fs_without_root, caplog, ftp_server):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.makedirs(path)
 
@@ -879,9 +1327,9 @@ async def test_makedirs_no_permission(fs_without_root, caplog, ftp_server):
 
 
 @pytest.mark.asyncio
-async def test_remove(fs_without_root, caplog, ftp_server, connection_parameters):
+async def test_remove_deletes_file(caplog, ftp_server, connection_parameters):
     path = pathlib.Path(ftp_server.home) / "text.txt"
-    path.write_text("")
+    path.write_text("", encoding="utf-8")
 
     assert path.is_file()
 
@@ -900,15 +1348,36 @@ async def test_remove(fs_without_root, caplog, ftp_server, connection_parameters
 
 
 @pytest.mark.asyncio
+async def test_remove_accepts_pathlike_file(caplog, ftp_server, connection_parameters):
+    path = pathlib.Path(ftp_server.home) / "pathlike.txt"
+    path.write_text("", encoding="utf-8")
+
+    ftp_path = pathlib.Path(ftp_server.root) / "pathlike.txt"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            await ftp_filesystem.rm(ftp_path)
+
+    assert not path.exists()
+
+    message = "Attempting to delete: {0!r}".format(str(ftp_path))
+    assert message in caplog.text
+
+    message = "File deletion succeeded: {0!r}".format(str(ftp_path))
+    assert message in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_remove_when_path_does_not_exist(
-    fs_without_root, caplog, ftp_server, connection_parameters
+    caplog, ftp_server, connection_parameters
 ):
     path = "/test.txt"
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.rm(path)
 
@@ -920,31 +1389,50 @@ async def test_remove_when_path_does_not_exist(
 
 
 @pytest.mark.asyncio
-async def test_remove_root_guard(fs_without_root, caplog, connection_parameters):
+async def test_remove_root_guard(caplog, connection_parameters):
     path = "/"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(ValueError) as error:
                 await ftp_filesystem.rm(path)
 
-    message = "Attempting to remove the root directory is disallowed."
+    message = "The system does not allow deletion of the root directory."
     assert message in caplog.text
 
-    message = "Attempt to remove FTP root directory has been prevented: {0!r}".format(
+    message = "An attempt to delete the FTP root directory was prevented: {0!r}".format(
         path
     )
     assert message in str(error.value)
 
 
 @pytest.mark.asyncio
-async def test_remove_invalid_path(fs_without_root, caplog, connection_parameters):
+async def test_remove_root_guard_normalized(caplog, connection_parameters):
+    path = "/dir/.."
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.rm(path)
+
+    message = "The remote path must not contain directory escape sequences."
+    assert message in caplog.text
+
+    message = "The remote path {0!r} must exclude {1!r} and {2!r} elements.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_invalid_path(caplog, connection_parameters):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
         path = {}
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await ftp_filesystem.rm(path)
 
@@ -958,7 +1446,7 @@ async def test_remove_invalid_path(fs_without_root, caplog, connection_parameter
         assert message in str(error.value)
 
         path = "\t\t"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await ftp_filesystem.rm(path)
 
@@ -969,7 +1457,7 @@ async def test_remove_invalid_path(fs_without_root, caplog, connection_parameter
         assert message in str(error.value)
 
         path = "not/from/root"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathNotAbsoluteError) as error:
                 await ftp_filesystem.rm(path)
 
@@ -981,11 +1469,28 @@ async def test_remove_invalid_path(fs_without_root, caplog, connection_parameter
 
 
 @pytest.mark.asyncio
-async def test_remove_trailing_whitespace(
-    fs_without_root, ftp_server, connection_parameters
-):
+async def test_remove_relative_segments(caplog, connection_parameters):
+    path = "/root/../escape"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.rm(path)
+
+    message = "The remote path must not contain directory escape sequences."
+    assert message in caplog.text
+
+    message = "The remote path {0!r} must exclude {1!r} and {2!r} elements.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_trailing_whitespace(ftp_server, connection_parameters):
     path = pathlib.Path(ftp_server.home) / "text.txt   "
-    path.write_text("")
+    path.write_text("", encoding="utf-8")
 
     ftp_path = str(pathlib.Path(ftp_server.root) / "text.txt   ")
     async with FTPFileSystem(
@@ -997,12 +1502,12 @@ async def test_remove_trailing_whitespace(
 
 
 @pytest.mark.asyncio
-async def test_remove_tree_invalid_path(fs_without_root, caplog, connection_parameters):
+async def test_remove_tree_invalid_path(caplog, connection_parameters):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
         path = {}
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await ftp_filesystem.rmtree(path)
 
@@ -1016,7 +1521,7 @@ async def test_remove_tree_invalid_path(fs_without_root, caplog, connection_para
         assert message in str(error.value)
 
         path = "\t\t"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathError) as error:
                 await ftp_filesystem.rmtree(path)
 
@@ -1027,7 +1532,7 @@ async def test_remove_tree_invalid_path(fs_without_root, caplog, connection_para
         assert message in str(error.value)
 
         path = "not/from/root"
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPPathNotAbsoluteError) as error:
                 await ftp_filesystem.rmtree(path)
 
@@ -1039,16 +1544,50 @@ async def test_remove_tree_invalid_path(fs_without_root, caplog, connection_para
 
 
 @pytest.mark.asyncio
-async def test_remove_tree_trailing_whitespace(
-    fs_without_root, ftp_server, connection_parameters
-):
+async def test_remove_tree_relative_segments(caplog, connection_parameters):
+    path = "/root/../escape"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.rmtree(path)
+
+    message = "The remote path must not contain upward or self-referencing segments."
+    assert message in caplog.text
+
+    message = "The remote path {0!r} must exclude {1!r} and {2!r} elements.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree_root_guard(caplog, connection_parameters):
+    path = "/"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(ValueError) as error:
+                await ftp_filesystem.rmtree(path)
+
+    message = "The root directory cannot be deleted under any circumstances."
+    assert message in caplog.text
+
+    message = "Prevented deletion of the FTP root directory: {0!r}".format(path)
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree_trailing_whitespace(ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
     root = pathlib.Path(ftp_server.root)
     target_directory = home / "tree  "
     target_directory.mkdir()
-    (target_directory / "file.txt").write_text("")
+    (target_directory / "file.txt").write_text("", encoding="utf-8")
     (target_directory / "subdir").mkdir()
-    (target_directory / "subdir" / "nested.txt").write_text("")
+    (target_directory / "subdir" / "nested.txt").write_text("", encoding="utf-8")
     path = str(root / "tree  ")
 
     async with FTPFileSystem(
@@ -1060,20 +1599,41 @@ async def test_remove_tree_trailing_whitespace(
 
 
 @pytest.mark.asyncio
+async def test_remove_tree_accepts_pathlike_root(ftp_server, connection_parameters):
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+    target_directory = home / "pathlike-tree"
+    target_directory.mkdir()
+    (target_directory / "file.txt").write_text("", encoding="utf-8")
+    (target_directory / "subdir").mkdir()
+    (target_directory / "subdir" / "nested.txt").write_text("", encoding="utf-8")
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        await ftp_filesystem.rmtree(root / "pathlike-tree")
+
+    assert not target_directory.exists()
+
+
+@pytest.mark.asyncio
 async def test_remove_tree_file_delete_error_wrapped(
-    fs_without_root, caplog, connection_parameters, mocker
+    caplog, connection_parameters, mocker
 ):
     async def _listdir(_self, path, _ftp=None, **kwargs):
         yield (FTPEntryType.FILE, "{0}/file.txt".format(path))
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
-    mocker.patch("pyftpkit.ftpfs.FTP.delete", side_effect=ftplib.error_perm("perm"))
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.delete",
+        side_effect=ftplib.error_perm("permission denied"),
+    )
 
     path = "/root"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.rmtree(path)
 
@@ -1086,20 +1646,22 @@ async def test_remove_tree_file_delete_error_wrapped(
 
 @pytest.mark.asyncio
 async def test_remove_tree_directory_remove_error_wrapped(
-    fs_without_root, caplog, connection_parameters, mocker
+    caplog, connection_parameters, mocker
 ):
     async def _listdir(_self, _path, _ftp=None, **kwargs):
         if False:
             yield
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
-    mocker.patch("pyftpkit.ftpfs.FTP.rmd", side_effect=ftplib.error_perm("perm"))
+    mocker.patch(
+        "pyftpkit.ftpfs.FTP.rmd", side_effect=ftplib.error_perm("permission denied")
+    )
 
     path = "/root"
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.rmtree(path)
 
@@ -1112,10 +1674,10 @@ async def test_remove_tree_directory_remove_error_wrapped(
 
 @pytest.mark.asyncio
 async def test_remove_tree_unexpected_error_wrapped(
-    fs_without_root, caplog, connection_parameters, mocker
+    caplog, connection_parameters, mocker
 ):
     async def _listdir(*args, **kwargs):
-        raise KeyError("error")
+        raise KeyError("unexpected listing parser failure")
         yield
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
@@ -1124,7 +1686,7 @@ async def test_remove_tree_unexpected_error_wrapped(
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.rmtree(path)
 
@@ -1136,14 +1698,75 @@ async def test_remove_tree_unexpected_error_wrapped(
 
 
 @pytest.mark.asyncio
-async def test_remove_tree(
-    fs_without_root,
+async def test_remove_tree_skips_root_on_visit(host, port, username, password, mocker):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 2,
+            "max_workers": 1,
+        }
+    )
+
+    class _FakeFTP:
+        def rmd(self, _path):
+            return None
+
+        def delete(self, _path):
+            return None
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        @contextlib.asynccontextmanager
+        async def acquire(self):
+            yield fake_ftp
+
+    async def _fake_listdir(self, dirpath, ftp=None):
+        if dirpath == "/root":
+            yield (FTPEntryType.DIRECTORY, "/")
+            return
+        if False:
+            yield
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "_listdir", types.MethodType(_fake_listdir, ftp_filesystem)
+        )
+
+        await ftp_filesystem.rmtree("/root")
+
+
+@pytest.mark.asyncio
+async def test_remove_tree_deletes_directories_and_files(
     caplog,
     ftp_server,
-    directory_tree,
     connection_parameters,
 ):
-    path = "/"
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+    base_dir = home / "tree"
+    base_dir.mkdir()
+    (base_dir / "file.txt").write_text("", encoding="utf-8")
+    (base_dir / "subdir").mkdir()
+    (base_dir / "subdir" / "nested.txt").write_text("", encoding="utf-8")
+    path = str(root / base_dir.relative_to(home))
+
+    expected_directories = [
+        root / base_dir.relative_to(home),
+        root / base_dir.relative_to(home) / "subdir",
+    ]
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -1151,22 +1774,22 @@ async def test_remove_tree(
         with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
             await ftp_filesystem.rmtree(path)
 
-    for directory_path in directory_tree.ftp_directories:
-        message = "Attempting to remove: {0!r}".format(str(directory_path))
+    for directory_path in expected_directories:
+        message = "Attempting to remove directory: {0!r}".format(str(directory_path))
         assert message in caplog.text
 
         message = "Remote directory has been removed: {0!r}".format(str(directory_path))
         assert message in caplog.text
 
-    assert not list(pathlib.Path(ftp_server.home).iterdir())
+    assert not base_dir.exists()
 
 
 @pytest.mark.asyncio
-async def test_remove_tree_no_permission(fs_without_root, caplog, ftp_server):
+async def test_remove_tree_no_permission(caplog, ftp_server):
     home = pathlib.Path(ftp_server.home)
     path = home / "test"
     path.mkdir()
-    (path / "file.txt").write_text("")
+    (path / "file.txt").write_text("", encoding="utf-8")
 
     ftp_path = str(pathlib.Path(ftp_server.root) / "test")
 
@@ -1184,7 +1807,7 @@ async def test_remove_tree_no_permission(fs_without_root, caplog, ftp_server):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(FTPError) as error:
                 await ftp_filesystem.rmtree(ftp_path)
 
@@ -1193,3 +1816,782 @@ async def test_remove_tree_no_permission(fs_without_root, caplog, ftp_server):
 
     message = "Failed to process directory entries for: '/test'"
     assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_invalid_path(caplog, connection_parameters):
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        path = {}
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.rmtree2(path)
+
+        message = "The remote path cannot be anything other than a string."
+        assert message in caplog.text
+
+        message = (
+            "The remote path may consist exclusively of string data."
+            "\nThe remote path {0!r} has type: {1!s}".format(path, type(path).__name__)
+        )
+        assert message in str(error.value)
+
+        path = "\t\t"
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.rmtree2(path)
+
+        message = "The remote path must include non-whitespace characters."
+        assert message in caplog.text
+
+        message = "The remote path requires at least one non-whitespace character."
+        assert message in str(error.value)
+
+        path = "not/from/root"
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathNotAbsoluteError) as error:
+                await ftp_filesystem.rmtree2(path)
+
+        message = "An absolute path beginning at the root directory is mandatory."
+        assert message in caplog.text
+
+        message = "Ambiguous remote path: {0!r}".format(path)
+        assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_relative_segments(caplog, connection_parameters):
+    path = "/root/../escape"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPPathError) as error:
+                await ftp_filesystem.rmtree2(path)
+
+    message = "The remote path must not include relative navigation components."
+    assert message in caplog.text
+
+    message = "The remote path {0!r} must exclude {1!r} and {2!r} elements.".format(
+        path, posixpath.curdir, posixpath.pardir
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_accepts_pathlike_root(
+    host, port, username, password, mocker
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    removed = []
+    removed_directories = []
+    captured = {}
+
+    class _FakeFTP:
+        def rmd(self, path):
+            removed_directories.append(path)
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, ftp):
+            assert ftp is fake_ftp
+            return None
+
+    async def _fake_walk(self, root_path):
+        captured["path"] = root_path
+        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+
+    async def _fake_rm(self, path, ftp=None):
+        assert ftp is fake_ftp
+        removed.append(path)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+
+        await ftp_filesystem.rmtree2(pathlib.Path("/root"))
+
+    assert captured["path"] == "/root"
+    assert removed == ["/root/file.txt"]
+    assert removed_directories == ["/root"]
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_rejects_entries_outside_root(
+    mocker, connection_parameters, caplog
+):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_connections": 4, "max_workers": 1, "max_queues_size": 1}
+    )
+
+    async def _fake_walk(self, _path):
+        yield ("/root", FTPEntryType.FILE, "/other/file.txt")
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPError) as error:
+                await ftp_filesystem.rmtree2("/root")
+
+    message = "The walk encountered a path outside the expected directory."
+    assert message in caplog.text
+
+    message = "Walk yielded a path outside the target root: {0!r}.".format(
+        "/other/file.txt"
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_root_guard(caplog, connection_parameters):
+    path = "/"
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(ValueError) as error:
+                await ftp_filesystem.rmtree2(path)
+
+    message = "The root directory is protected against deletion."
+    assert message in caplog.text
+
+    message = "The FTP root directory is protected and cannot be removed: {0!r}".format(
+        path
+    )
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_trailing_whitespace(ftp_server, connection_parameters):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_connections": 4}
+    )
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+    target_directory = home / "tree  "
+    target_directory.mkdir()
+    (target_directory / "file.txt").write_text("", encoding="utf-8")
+    (target_directory / "subdir").mkdir()
+    (target_directory / "subdir" / "nested.txt").write_text("", encoding="utf-8")
+    path = str(root / "tree  ")
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        await ftp_filesystem.rmtree2(path)
+
+    assert not target_directory.exists()
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_removes_tree_with_spaces(
+    caplog,
+    ftp_server,
+    connection_parameters,
+):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_connections": 4}
+    )
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+    base_directory = home / "space root"
+    base_directory.mkdir()
+    (base_directory / "file.txt").write_text("", encoding="utf-8")
+    space_directory = base_directory / "space dir"
+    space_directory.mkdir()
+    (space_directory / "with space.txt").write_text("", encoding="utf-8")
+
+    path = str(root / base_directory.relative_to(home))
+
+    expected_directories = [
+        root / base_directory.relative_to(home) / "space dir",
+    ]
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            await ftp_filesystem.rmtree2(path)
+
+    for directory_path in expected_directories:
+        message = "Attempting to remove directory: {0!r}".format(str(directory_path))
+        assert message in caplog.text
+
+    message = "Attempting to remove target directory: {0!r}".format(path)
+    assert message in caplog.text
+
+    assert not base_directory.exists()
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_falls_back_with_small_pool(
+    host, port, username, password, mocker
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 1,
+            "max_workers": 1,
+        }
+    )
+    ftp_filesystem = FTPFileSystem(connection_parameters=connection_parameters)
+    rmtree_mock = mocker.AsyncMock()
+    mocker.patch.object(ftp_filesystem, "rmtree", rmtree_mock)
+
+    path = "/root"
+    await ftp_filesystem.rmtree2(path)
+
+    rmtree_mock.assert_awaited_once_with(path)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_reserves_connection_before_walk(
+    host, port, username, password, mocker
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    acquired = asyncio.Event()
+    released = asyncio.Event()
+
+    class _FakeFTP:
+        def rmd(self, _path):
+            return None
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            acquired.set()
+            return fake_ftp
+
+        async def release(self, ftp):
+            assert ftp is fake_ftp
+            released.set()
+
+    async def _fake_walk(self, _path):
+        assert acquired.is_set()
+        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+
+    async def _fake_rm(self, _path, ftp):
+        assert ftp is fake_ftp
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+
+        await ftp_filesystem.rmtree2("/root")
+
+    assert released.is_set()
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_propagates_walk_error(
+    host, port, username, password, mocker, caplog
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    released = asyncio.Event()
+    fake_ftp = object()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, ftp):
+            assert ftp is fake_ftp
+            released.set()
+
+    async def _fake_walk(self, _path):
+        raise RuntimeError("Walk worker error.") from ftplib.error_perm(
+            "permission denied"
+        )
+        if False:
+            yield
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await ftp_filesystem.rmtree2("/root")
+
+    message = "Walk worker error."
+    assert message in str(error.value)
+    assert caplog.text == ""
+    assert released.is_set()
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_propagates_rm_error(
+    host, port, username, password, mocker, caplog
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    fake_ftp = object()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, _ftp):
+            return None
+
+    async def _fake_walk(self, _path):
+        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+
+    async def _fake_rm(self, _path, ftp=None):
+        raise FTPError("simulated removal failure")
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPError, match="simulated removal failure"):
+                await ftp_filesystem.rmtree2("/root")
+
+    assert caplog.text == ""
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_root_branch_strips_leading_separator(
+    host, port, username, password, mocker
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    removals = []
+
+    class _FakeFTP:
+        def rmd(self, path):
+            removals.append(path)
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, _ftp):
+            return None
+
+    async def _fake_walk(self, _path):
+        yield ("/", FTPEntryType.DIRECTORY, "/child")
+
+    async def _fake_rm(self, _path, ftp=None):
+        return None
+
+    original_normpath = posixpath.normpath
+
+    def _fake_normpath(path):
+        if path == posixpath.sep:
+            return "not-root"
+        return original_normpath(path)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+        mocker.patch("pyftpkit.ftpfs.posixpath.normpath", new=_fake_normpath)
+
+        await ftp_filesystem.rmtree2(posixpath.sep)
+
+    assert removals == ["/child"]
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_skips_empty_and_root_paths(
+    host, port, username, password, mocker
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    removals = []
+
+    class _FakeFTP:
+        def rmd(self, path):
+            removals.append(path)
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, _ftp):
+            return None
+
+    class _DummyTrie:
+        def insert(self, _path):
+            return None
+
+        def __reversed__(self):
+            return iter(["", "/"])
+
+    async def _fake_walk(self, _path):
+        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+
+    async def _fake_rm(self, _path, ftp=None):
+        return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+        mocker.patch("pyftpkit.ftpfs.PathTrie", new=_DummyTrie)
+
+        await ftp_filesystem.rmtree2("/root")
+
+    assert removals == ["/root"]
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_directory_remove_error_wrapped(
+    host, port, username, password, mocker, caplog
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+
+    class _FakeFTP:
+        def rmd(self, _path):
+            raise ftplib.error_perm("nope")
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, _ftp):
+            return None
+
+    class _DummyTrie:
+        def insert(self, _path):
+            return None
+
+        def __reversed__(self):
+            return iter(["child"])
+
+    async def _fake_walk(self, _path):
+        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+
+    async def _fake_rm(self, _path, ftp=None):
+        return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+        mocker.patch("pyftpkit.ftpfs.PathTrie", new=_DummyTrie)
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPError) as error:
+                await ftp_filesystem.rmtree2("/root")
+
+    message = "The directory could not be removed."
+    assert message in caplog.text
+
+    message = "Failed to remove {0!r} from the FTP server.".format("/root/child")
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_remove_tree2_target_directory_remove_error_wrapped(
+    host, port, username, password, mocker, caplog
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+
+    class _FakeFTP:
+        def rmd(self, path):
+            if path == "/root":
+                raise ftplib.error_perm("nope")
+            return None
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, _ftp):
+            return None
+
+    async def _fake_walk(self, _path):
+        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+
+    async def _fake_rm(self, _path, ftp=None):
+        return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(FTPError) as error:
+                await ftp_filesystem.rmtree2("/root")
+
+    message = "The target directory could not be removed."
+    assert message in caplog.text
+
+    message = "Could not delete directory {0!r} on the FTP server.".format("/root")
+    assert message in str(error.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "root_path, entry_path, expected_removals",
+    [
+        ("/root", "/root/subdir", ["/root/subdir", "/root"]),
+    ],
+)
+async def test_remove_tree2_collects_directory_paths(
+    host,
+    port,
+    username,
+    password,
+    mocker,
+    root_path,
+    entry_path,
+    expected_removals,
+):
+    connection_parameters = ConnectionParameters.model_validate(
+        {
+            "host": host,
+            "port": port,
+            "credentials": {
+                "username": username,
+                "password": password,
+            },
+            "max_connections": 4,
+            "max_workers": 1,
+        }
+    )
+    removals = []
+
+    class _FakeFTP:
+        def rmd(self, path):
+            removals.append(path)
+
+    fake_ftp = _FakeFTP()
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return fake_ftp
+
+        async def release(self, _ftp):
+            return None
+
+    async def _fake_walk(self, _path):
+        yield (root_path, FTPEntryType.DIRECTORY, entry_path)
+
+    async def _fake_rm(self, _path, ftp=None):
+        return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch.object(
+            ftp_filesystem, "walk", types.MethodType(_fake_walk, ftp_filesystem)
+        )
+        mocker.patch.object(
+            ftp_filesystem, "_rm", types.MethodType(_fake_rm, ftp_filesystem)
+        )
+
+        await ftp_filesystem.rmtree2(root_path)
+
+    assert removals == expected_removals

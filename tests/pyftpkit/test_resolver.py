@@ -249,7 +249,7 @@ async def test_upload_supports_many_to_many_pathlike(
 async def test_upload_raises_for_empty_source_path(
     filesystem_without_root, caplog, upload_resolver
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(upload_resolver.resolve("", "/output/"))
 
@@ -264,7 +264,7 @@ async def test_upload_raises_for_empty_source_path(
 async def test_upload_raises_for_whitespace_source_path(
     filesystem_without_root, caplog, upload_resolver
 ):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(upload_resolver.resolve("   ", "/output/"))
 
@@ -283,7 +283,7 @@ async def test_upload_raises_for_empty_destination_path(
     source_path.parent.mkdir()
     source_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(upload_resolver.resolve(str(source_path), ""))
 
@@ -302,7 +302,7 @@ async def test_upload_raises_for_whitespace_destination_path(
     source_path.parent.mkdir()
     source_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(upload_resolver.resolve(str(source_path), "  "))
 
@@ -319,7 +319,7 @@ async def test_upload_raises_for_parent_reference_source_path(
 ):
     invalid_source = "../data/file.txt"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(invalid_source, "/output/")
@@ -343,7 +343,7 @@ async def test_upload_raises_for_parent_reference_destination_path(
     source_path.write_text("", encoding="utf-8")
     invalid_destination = "/output/../escape"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(str(source_path), invalid_destination)
@@ -364,7 +364,7 @@ async def test_upload_raises_for_backslash_source_path(
 ):
     invalid_source = "data\\file.txt"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(invalid_source, "/output/")
@@ -388,7 +388,7 @@ async def test_upload_raises_for_backslash_destination_path(
     source_path.write_text("", encoding="utf-8")
     invalid_destination = "\\\\output\\file.txt"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(str(source_path), invalid_destination)
@@ -411,7 +411,7 @@ async def test_upload_raises_for_relative_destination_path(
     source_path.parent.mkdir()
     source_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathNotAbsoluteError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(str(source_path), "output")
@@ -447,7 +447,7 @@ async def test_upload_raises_for_missing_source(
     filesystem_without_root, caplog, upload_resolver
 ):
     missing_source_path = "/nonexistent/a.txt"
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(missing_source_path, "/output/")
@@ -471,7 +471,7 @@ async def test_upload_raises_for_symlink_source(
     source_link_path = pathlib.Path("/data/link.txt")
     source_link_path.symlink_to(target_file_path)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(str(source_link_path), "/output/")
@@ -495,7 +495,7 @@ async def test_upload_raises_for_trailing_suffix_on_file_source(
     source_file_path.parent.mkdir()
     source_file_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(upload_resolver.resolve(source, "/output/"))
 
@@ -516,7 +516,7 @@ async def test_upload_raises_for_destination_wildcard(
     source_path.parent.mkdir()
     source_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(str(source_path), "/output/*")
@@ -538,7 +538,7 @@ async def test_upload_raises_for_relative_destination_path_in_many_sources(
     source_path = root_directory / "1.txt"
     source_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathNotAbsoluteError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve([str(source_path)], "output")
@@ -553,7 +553,7 @@ async def test_upload_raises_for_relative_destination_path_in_many_sources(
 
 @pytest.mark.asyncio
 async def test_download_raises_for_destination_wildcard(download_resolver, caplog):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/file.txt", "/output/*")
@@ -568,7 +568,7 @@ async def test_download_raises_for_destination_wildcard(download_resolver, caplo
 
 @pytest.mark.asyncio
 async def test_download_raises_for_empty_source_path(download_resolver, caplog):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(download_resolver.resolve("", "/output/"))
 
@@ -581,7 +581,7 @@ async def test_download_raises_for_empty_source_path(download_resolver, caplog):
 
 @pytest.mark.asyncio
 async def test_download_raises_for_empty_destination_path(download_resolver, caplog):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(download_resolver.resolve("/file.txt", ""))
 
@@ -596,7 +596,7 @@ async def test_download_raises_for_empty_destination_path(download_resolver, cap
 async def test_download_raises_for_backslash_source_path(download_resolver, caplog):
     invalid_source = "folder\\file.txt"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve(invalid_source, "/output/")
@@ -617,7 +617,7 @@ async def test_download_raises_for_backslash_destination_path(
 ):
     invalid_destination = "\\\\output\\file.txt"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/file.txt", invalid_destination)
@@ -638,7 +638,7 @@ async def test_download_raises_for_parent_reference_source_path(
 ):
     invalid_source = "../file.txt"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve(invalid_source, "/output/")
@@ -659,7 +659,7 @@ async def test_download_raises_for_parent_reference_destination_path(
 ):
     invalid_destination = "/output/../escape"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/file.txt", invalid_destination)
@@ -676,7 +676,7 @@ async def test_download_raises_for_parent_reference_destination_path(
 
 @pytest.mark.asyncio
 async def test_download_raises_for_relative_source_path(download_resolver, caplog):
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathNotAbsoluteError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("file.txt", "/output/")
@@ -777,7 +777,7 @@ async def test_download_empty_directory_with_existing_file_destination_raises(
     destination_path = tmp_path / "output.txt"
     destination_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/empty", str(destination_path))
@@ -800,7 +800,7 @@ async def test_download_raises_for_trailing_suffix_on_file(
     root_path = pathlib.Path(ftp_server.root)
     (home_path / "file.txt").write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/file.txt/", "/output/")
@@ -819,7 +819,7 @@ async def test_download_raises_for_trailing_suffix_on_file(
 async def test_download_raises_for_missing_source(download_resolver, caplog):
     missing_source_path = "/missing"
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve(missing_source_path, "/output/")
@@ -876,7 +876,7 @@ async def test_download_raises_when_destination_with_trailing_slash_is_file(
     destination_path.write_text("", encoding="utf-8")
     destination_with_slash = "{0}/".format(destination_path)
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/file.txt", destination_with_slash)
@@ -902,7 +902,7 @@ async def test_download_raises_when_directory_destination_is_file(
     destination_path = tmp_path / "output"
     destination_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/folder", str(destination_path))
@@ -924,7 +924,7 @@ async def test_download_raises_when_many_sources_destination_is_file(
     destination_path = tmp_path / "output"
     destination_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve(["/one.txt"], str(destination_path))
@@ -948,7 +948,7 @@ async def test_download_raises_when_directory_destination_is_file_with_trailing_
     destination_path = tmp_path / "output"
     destination_path.write_text("", encoding="utf-8")
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 download_resolver.resolve("/folder/", str(destination_path))
@@ -1032,7 +1032,7 @@ async def test_upload_raises_for_length_mismatch_between_sources_and_destination
         "/output/{0}.txt".format(index) for index in range(1, destination_count + 1)
     ]
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(RuntimeError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(
@@ -1059,7 +1059,7 @@ async def test_upload_raises_for_non_string_destination_in_many_to_many(
     source_value = str(source_path)
     destination_value = 42
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(ValueError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve([source_value], [destination_value])
@@ -1087,7 +1087,7 @@ async def test_upload_raises_for_non_string_source_in_many_to_many(
     destination_value = "/output/1.txt"
     invalid_source_value = 42
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(ValueError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve([invalid_source_value], [destination_value])
@@ -1135,7 +1135,7 @@ async def test_upload_raises_for_non_string_source_in_many_sources(
     source_path = root_directory / "1.txt"
     source_path.write_text("", encoding="utf-8")
     invalid_source_value = 42
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(ValueError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(
@@ -1159,7 +1159,7 @@ async def test_upload_raises_for_invalid_argument_types(
     source_path.parent.mkdir()
     source_path.write_text("", encoding="utf-8")
     destination_paths = ["/output/"]
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(TypeError) as error:
             await _drain_async_iterator(
                 upload_resolver.resolve(str(source_path), destination_paths)
@@ -1184,7 +1184,7 @@ async def test_upload_resolver_raises_for_pathlike_bytes_source(
 
     pathlike_value = BytesPathLike()
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(FTPPathError) as error:
             await _drain_async_iterator(
                 upload_resolver._one_to_one(pathlike_value, "/output/")

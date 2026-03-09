@@ -70,7 +70,7 @@ def test_from_arguments_rejects_invalid_logger_interval(
         logger_interval=logger_interval,
     )
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.ERROR, logger="pyftpkit"):
         with pytest.raises(pydantic.ValidationError) as error:
             LoaderSettings.from_arguments(vars(namespace))
 
