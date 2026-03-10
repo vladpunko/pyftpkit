@@ -20,8 +20,12 @@ help:
 	@echo 'clean           - clean up project environment and all the build artifacts'
 
 .PHONY:
+GET_PIP := /tmp/get-pip.py
+$(GET_PIP):
+	@python3 -c '__import__("urllib.request", fromlist=["urlretrieve"]).urlretrieve("https://bootstrap.pypa.io/get-pip.py", "$(GET_PIP)")'
+
 venv: $(VENV_DIR)/bin/activate
-$(VENV_DIR)/bin/activate:
+$(VENV_DIR)/bin/activate: $(GET_PIP)
 	@python3 -m venv $(VENV_DIR)
 	@$(PIP) install --upgrade pip setuptools uv wheel
 	@$(PYTHON) -m uv sync --group dev --group tests
