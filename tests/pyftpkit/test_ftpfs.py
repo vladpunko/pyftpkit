@@ -475,6 +475,60 @@ async def test_walk_traverses_directory_tree(
 
 
 @pytest.mark.asyncio
+async def test_walk_with_minimal_queue_capacity_traverses_deep_tree(
+    ftp_server, connection_parameters, caplog
+):
+    connection_parameters = connection_parameters.model_copy(
+        update={"max_queues_size": 1, "max_workers": 1}
+    )
+    home = pathlib.Path(ftp_server.home)
+    root = pathlib.Path(ftp_server.root)
+
+    expected_directories = set()
+    expected_files = set()
+
+    for outer_index in range(5):
+        current = home / "dir-{0}".format(outer_index)
+        current.mkdir()
+        expected_directories.add(str(root / current.relative_to(home)))
+
+        for depth_index in range(5):
+            current = current / "nested-{0}".format(depth_index)
+            current.mkdir()
+            expected_directories.add(str(root / current.relative_to(home)))
+
+            file_path = current / "file-{0}-{1}.txt".format(
+                outer_index, depth_index
+            )
+            file_path.write_text("", encoding="utf-8")
+            expected_files.add(str(root / file_path.relative_to(home)))
+
+    async def _collect_walk(ftp_filesystem, walk_root):
+        directories = set()
+        files = set()
+
+        async for _, entry_type, entry_path in ftp_filesystem.walk(str(walk_root)):
+            if entry_type == FTPEntryType.DIRECTORY:
+                directories.add(entry_path)
+            else:
+                files.add(entry_path)
+
+        return directories, files
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            collected_dirs, collected_files = await asyncio.wait_for(
+                _collect_walk(ftp_filesystem, root), timeout=10
+            )
+
+    assert collected_dirs == expected_directories
+    assert collected_files == expected_files
+    assert caplog.text == ""
+
+
+@pytest.mark.asyncio
 async def test_walk_accepts_pathlike_root(ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
     root = pathlib.Path(ftp_server.root)

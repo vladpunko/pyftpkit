@@ -4,6 +4,7 @@
 # Created date: 2025-10-05
 
 import asyncio
+import collections
 import collections.abc
 import enum
 import ftplib
@@ -271,8 +272,10 @@ class FTPFileSystem:
 
         Notes
         -----
-        The traversal relies on bounded queues to regulate flow control.
-        Slow consumption results in workers waiting while the output queue remains full.
+        The traversal bounds outstanding directories (queued + in-flight) using
+        a semaphore tied to `max_queues_size`. Workers report discovered child
+        directories back to the scheduler to avoid deadlocks when the bound is 1,
+        while the output queue remains bounded to apply backpressure.
         """
         loop = asyncio.get_running_loop()
 
@@ -313,14 +316,30 @@ class FTPFileSystem:
         stop_event = asyncio.Event()
         worker_error = loop.create_future()
 
-        queue: asyncio.Queue[str] = asyncio.Queue(
-            maxsize=max(1, self._connection_parameters.max_queues_size)
-        )
-        await queue.put(path)
+        # Work queue for directories scheduled for discovery.
+        queue: asyncio.Queue[str] = asyncio.Queue()
 
+        # Bounded output queue: applies backpressure to the consumer.
         output_queue: asyncio.Queue[tuple[str, FTPEntryType, str] | Exception] = (
             asyncio.Queue(maxsize=max(1, self._connection_parameters.max_queues_size))
         )
+
+        # Queue of discovered child directories reported back by workers.
+        discovery_queue: asyncio.Queue[str] = asyncio.Queue()
+
+        # Bound for outstanding directories.
+        outstanding_semaphore = asyncio.Semaphore(
+            max(1, self._connection_parameters.max_queues_size)
+        )
+        pending_directories: collections.deque[str] = collections.deque()
+
+        # Centralize scheduling so the semaphore bounds outstanding directories
+        # without blocking workers on child discovery.
+        async def _schedule_directory(dirpath: str) -> None:
+            await outstanding_semaphore.acquire()
+            await queue.put(dirpath)
+
+        await _schedule_directory(path)
 
         async def _worker() -> None:
             """Worker coroutine that retrieves directories from the task queue.
@@ -336,14 +355,18 @@ class FTPFileSystem:
                         logger.debug("Processing directory from queue: %r", dirpath)
                     except asyncio.CancelledError:
                         break
-
                     try:
                         async for entry_type, entry_path in self._listdir(
                             dirpath, ftp=ftp
                         ):
-                            if entry_type == FTPEntryType.DIRECTORY:
-                                await queue.put(entry_path)
                             await output_queue.put((dirpath, entry_type, entry_path))
+                            if entry_type == FTPEntryType.DIRECTORY:
+                                try:
+                                    discovery_queue.put_nowait(entry_path)
+                                except asyncio.QueueFull:
+                                    # Discovery notifications are best-effort to avoid
+                                    # blocking workers during shutdown.
+                                    pass
                     except asyncio.CancelledError:
                         raise
                     except Exception as err:
@@ -363,6 +386,9 @@ class FTPFileSystem:
                         break
                     finally:
                         queue.task_done()
+                        # Release the outstanding slot so the scheduler can enqueue
+                        # the next pending directory.
+                        outstanding_semaphore.release()
 
                     if stop_event.is_set():
                         break
@@ -387,8 +413,9 @@ class FTPFileSystem:
             # Create a task to wait for all directories to be processed.
             join_task = asyncio.create_task(queue.join())
 
-            # Wait until all tasks in the queue are done or an exception occurs.
-            while not join_task.done():
+            # Main loop: drain output, collect discoveries, and schedule work
+            # until traversal is complete or a stop signal occurs.
+            while True:
                 if stop_event.is_set():
                     break
 
@@ -404,9 +431,39 @@ class FTPFileSystem:
 
                     output_queue.task_done()
                 except asyncio.TimeoutError:
-                    # Re-enter the loop to inspect the join task and check
-                    # for the stop event.
+                    # Re-enter the loop to inspect the stop event.
                     pass
+
+                while True:
+                    try:
+                        discovered = discovery_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    else:
+                        if not stop_event.is_set():
+                            pending_directories.append(discovered)
+                        discovery_queue.task_done()
+
+                scheduled_count = 0
+                if not stop_event.is_set():
+                    # Schedule as many pending directories as the outstanding
+                    # semaphore allows, without blocking the main loop.
+                    while pending_directories and not outstanding_semaphore.locked():
+                        await _schedule_directory(pending_directories.popleft())
+                        scheduled_count += 1
+
+                if scheduled_count and join_task is not None and join_task.done():
+                    join_task = asyncio.create_task(queue.join())
+
+                # Exit when all queued work has completed and no new discoveries
+                # are waiting to be scheduled.
+                if (
+                    join_task is not None
+                    and join_task.done()
+                    and not pending_directories
+                    and discovery_queue.empty()
+                ):
+                    break
 
             if stop_event.is_set():
                 # Prevent a deadlock when a worker fails with
@@ -420,6 +477,13 @@ class FTPFileSystem:
                         break
                     else:
                         queue.task_done()
+                        # Release any outstanding slot for a queued item
+                        # that will not be processed due to shutdown.
+                        outstanding_semaphore.release()
+
+                # Drop any pending directories when aborting to avoid
+                # rescheduling work after a stop signal.
+                pending_directories.clear()
             else:
                 await join_task
 
