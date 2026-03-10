@@ -497,9 +497,7 @@ async def test_walk_with_minimal_queue_capacity_traverses_deep_tree(
             current.mkdir()
             expected_directories.add(str(root / current.relative_to(home)))
 
-            file_path = current / "file-{0}-{1}.txt".format(
-                outer_index, depth_index
-            )
+            file_path = current / "file-{0}-{1}.txt".format(outer_index, depth_index)
             file_path.write_text("", encoding="utf-8")
             expected_files.add(str(root / file_path.relative_to(home)))
 
