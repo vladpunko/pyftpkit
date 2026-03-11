@@ -6,6 +6,7 @@
 import asyncio
 import collections
 import collections.abc
+import dataclasses
 import enum
 import ftplib
 import functools
@@ -41,6 +42,47 @@ def _has_prohibited_segments(path: str) -> bool:
     return any(
         segment in prohibited for segment in path.split(posixpath.sep) if segment
     )
+
+
+@dataclasses.dataclass(init=False, slots=True)
+class _OutstandingDirectoryTracker:
+    """Tracks directories discovered but not yet fully processed."""
+
+    _complete: asyncio.Event
+    _count: int
+    _lock: asyncio.Lock  # guard counter updates across concurrent workers
+
+    def __init__(self, initial: int = 0) -> None:
+        if initial < 0:
+            raise ValueError("initial must be non-negative")
+
+        self._complete = asyncio.Event()
+        self._count = initial
+        self._lock = asyncio.Lock()
+
+        if self._count == 0:
+            self._complete.set()
+
+    @property
+    def complete(self) -> asyncio.Event:
+        """Event set when all directories have been processed."""
+        return self._complete
+
+    async def increment(self) -> None:
+        """Registers a newly discovered directory."""
+        async with self._lock:
+            self._count += 1
+            self._complete.clear()
+
+    async def decrement(self) -> None:
+        """Marks a directory as fully processed."""
+        async with self._lock:
+            if self._count == 0:
+                raise RuntimeError("Outstanding directory counter underflow.")
+
+            self._count -= 1
+            if self._count == 0:
+                self._complete.set()
 
 
 class FTPEntryType(int, enum.Enum):
@@ -273,9 +315,10 @@ class FTPFileSystem:
         Notes
         -----
         The traversal bounds outstanding directories (queued + in-flight) using
-        a semaphore tied to `max_queues_size`. Workers report discovered child
-        directories back to the scheduler to avoid deadlocks when the bound is 1,
-        while the output queue remains bounded to apply backpressure.
+        a semaphore tied to `max_queues_size` and tracks discovery with an
+        outstanding-directory counter. Workers report discovered child directories
+        back to the scheduler to avoid deadlocks when the bound is 1, while the
+        output queue remains bounded to apply backpressure.
         """
         loop = asyncio.get_running_loop()
 
@@ -339,6 +382,8 @@ class FTPFileSystem:
             await outstanding_semaphore.acquire()
             await queue.put(dirpath)
 
+        # Root directory counts as the first outstanding unit of work.
+        tracker = _OutstandingDirectoryTracker(initial=1)
         await _schedule_directory(path)
 
         async def _worker() -> None:
@@ -361,12 +406,13 @@ class FTPFileSystem:
                         ):
                             await output_queue.put((dirpath, entry_type, entry_path))
                             if entry_type == FTPEntryType.DIRECTORY:
+                                await tracker.increment()
                                 try:
                                     discovery_queue.put_nowait(entry_path)
                                 except asyncio.QueueFull:
                                     # Discovery notifications are best-effort to avoid
                                     # blocking workers during shutdown.
-                                    pass
+                                    await tracker.decrement()
                     except asyncio.CancelledError:
                         raise
                     except Exception as err:
@@ -389,6 +435,7 @@ class FTPFileSystem:
                         # Release the outstanding slot so the scheduler can enqueue
                         # the next pending directory.
                         outstanding_semaphore.release()
+                        await tracker.decrement()
 
                     if stop_event.is_set():
                         break
@@ -419,6 +466,7 @@ class FTPFileSystem:
                 if stop_event.is_set():
                     break
 
+                output_timed_out = False
                 try:
                     # Short timeout to periodically check stop event.
                     output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
@@ -432,7 +480,7 @@ class FTPFileSystem:
                     output_queue.task_done()
                 except asyncio.TimeoutError:
                     # Re-enter the loop to inspect the stop event.
-                    pass
+                    output_timed_out = True
 
                 while True:
                     try:
@@ -455,14 +503,8 @@ class FTPFileSystem:
                 if scheduled_count and join_task is not None and join_task.done():
                     join_task = asyncio.create_task(queue.join())
 
-                # Exit when all queued work has completed and no new discoveries
-                # are waiting to be scheduled.
-                if (
-                    join_task is not None
-                    and join_task.done()
-                    and not pending_directories
-                    and discovery_queue.empty()
-                ):
+                # Exit when all directories have been fully processed.
+                if output_timed_out and tracker.complete.is_set():
                     break
 
             if stop_event.is_set():
@@ -489,6 +531,18 @@ class FTPFileSystem:
 
             if worker_error.done() and not worker_error.cancelled():
                 raise RuntimeError("Walk worker error.") from worker_error.exception()
+
+            if not stop_event.is_set():
+                while not output_queue.empty():
+                    output = await output_queue.get()
+
+                    if isinstance(output, Exception):
+                        output_queue.task_done()
+                        raise RuntimeError("Walk worker error.") from output
+
+                    yield output
+
+                    output_queue.task_done()
         except asyncio.CancelledError:
             cancelled = True
 
@@ -536,21 +590,9 @@ class FTPFileSystem:
                     await asyncio.gather(join_task, return_exceptions=True)
             # Drain any remaining items that might have been
             # placed onto the output queue before the workers were signaled to stop.
-            if cancelled:
-                while not output_queue.empty():
-                    output_queue.get_nowait()
-                    output_queue.task_done()
-            else:
-                while not output_queue.empty():
-                    output = await output_queue.get()
-
-                    if isinstance(output, Exception):
-                        output_queue.task_done()
-                        raise RuntimeError("Walk worker error.") from output
-
-                    yield output
-
-                    output_queue.task_done()
+            while not output_queue.empty():
+                output_queue.get_nowait()
+                output_queue.task_done()
 
     @functools.singledispatchmethod
     async def makedirs(self, paths: typing.Iterable[str | os.PathLike]) -> None:
