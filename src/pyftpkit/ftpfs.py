@@ -60,6 +60,7 @@ class _OutstandingDirectoryTracker:
         self._count = initial
         self._lock = asyncio.Lock()
 
+        # Ensure callers do not await when there is no work to process.
         if self._count == 0:
             self._complete.set()
 
@@ -72,6 +73,7 @@ class _OutstandingDirectoryTracker:
         """Registers a newly discovered directory."""
         async with self._lock:
             self._count += 1
+            # New work arrived: ensure completion waits until it is processed.
             self._complete.clear()
 
     async def decrement(self) -> None:
@@ -82,6 +84,7 @@ class _OutstandingDirectoryTracker:
 
             self._count -= 1
             if self._count == 0:
+                # All directories processed: notify waiters.
                 self._complete.set()
 
 
@@ -178,10 +181,33 @@ class FTPFileSystem:
 
         await loop.run_in_executor(self._pool.executor, ftp.cwd, path)
 
-        entries: list[str] = []
+        # Capture raw bytes to avoid decode failures inside ftplib for atypical
+        # server encodings: we decode explicitly with a fallback.
+        raw_entries: list[bytes] = []
         await loop.run_in_executor(
-            self._pool.executor, ftp.retrlines, "LIST -a", entries.append
+            self._pool.executor, ftp.retrbinary, "LIST -a", raw_entries.append
         )
+
+        entries: list[str] = []
+        if raw_entries:
+            raw_payload = b"".join(raw_entries)
+
+            encoding = getattr(ftp, "encoding", "utf-8")
+            try:
+                decoded = raw_payload.decode(encoding)
+            except UnicodeDecodeError:
+                # Latin-1 provides a lossless 1:1 byte mapping for any payload.
+                fallback_encoding = "latin-1"
+                logger.warning(
+                    "Failed to decode FTP using %r for: %r\n"
+                    "Message decoded with: %r",
+                    encoding,
+                    path,
+                    fallback_encoding,
+                )
+                decoded = raw_payload.decode(fallback_encoding)
+
+            entries = decoded.splitlines()
         logger.debug(repr(entries))
 
         for entry in entries:
@@ -456,6 +482,7 @@ class FTPFileSystem:
 
         cancelled = False
         join_task: asyncio.Task[None] | None = None
+        output_exception: Exception | None = None
         try:
             # Create a task to wait for all directories to be processed.
             join_task = asyncio.create_task(queue.join())
@@ -466,14 +493,22 @@ class FTPFileSystem:
                 if stop_event.is_set():
                     break
 
+                if worker_error.done() and not worker_error.cancelled():
+                    stop_event.set()
+                    break
+
                 output_timed_out = False
                 try:
                     # Short timeout to periodically check stop event.
                     output = await asyncio.wait_for(output_queue.get(), timeout=0.1)
 
                     if isinstance(output, Exception):
+                        # Capture worker exceptions, signal shutdown, and exit the
+                        # loop to prevent hangs while teardown runs.
+                        output_exception = output
                         output_queue.task_done()
-                        raise RuntimeError("Walk worker error.") from output
+                        stop_event.set()
+                        break
 
                     yield output
 
@@ -531,6 +566,9 @@ class FTPFileSystem:
 
             if worker_error.done() and not worker_error.cancelled():
                 raise RuntimeError("Walk worker error.") from worker_error.exception()
+
+            if output_exception is not None:
+                raise RuntimeError("Walk worker error.") from output_exception
 
             if not stop_event.is_set():
                 while not output_queue.empty():

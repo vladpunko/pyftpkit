@@ -104,6 +104,19 @@ async def drain_async_iterator(iterator):
         pass
 
 
+def mock_list_retrbinary(mocker, entries, encoding="utf-8"):
+    """Helper to stub LIST responses for retrbinary."""
+    retrbinary_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrbinary")
+
+    def _emit(_command, callback, blocksize=8192, rest=None):
+        for entry in entries:
+            callback("{0}\r\n".format(entry).encode(encoding))
+
+    retrbinary_mock.side_effect = _emit
+
+    return retrbinary_mock
+
+
 @pytest.mark.asyncio
 async def test_list_directory(caplog, ftp_server, connection_parameters):
     home = pathlib.Path(ftp_server.home)
@@ -352,8 +365,7 @@ async def test_list_directory_bad_entry(mocker, ftp_server, connection_parameter
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:20 .",
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:21 ..",
     ]
-    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
-    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+    mock_list_retrbinary(mocker, entries)
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -375,8 +387,7 @@ async def test_list_directory_name_with_symlink_token_preserved(
     entries = [
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 name -> target.txt",
     ]
-    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
-    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+    mock_list_retrbinary(mocker, entries)
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -388,6 +399,33 @@ async def test_list_directory_name_with_symlink_token_preserved(
 
 
 @pytest.mark.asyncio
+async def test_list_directory_decodes_with_fallback_encoding(
+    caplog, mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entries = [
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 café.txt",
+    ]
+    mock_list_retrbinary(mocker, entries, encoding="latin-1")
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.WARNING, logger="pyftpkit"):
+            directories, non_directories = await list_directory(ftp_filesystem, root)
+
+    assert directories == []
+    assert non_directories == [str(root / "café.txt")]
+
+    message = (
+        "Failed to decode FTP using {0!r} for: {1!r}\n"
+        "Message decoded with: {2!r}"
+    )
+    message = message.format("utf-8", str(root), "latin-1")
+    assert message in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_list_directory_skips_absolute_entries(
     mocker, ftp_server, connection_parameters
 ):
@@ -396,8 +434,7 @@ async def test_list_directory_skips_absolute_entries(
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 /absdir",
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 file.txt",
     ]
-    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
-    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+    mock_list_retrbinary(mocker, entries)
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -417,8 +454,7 @@ async def test_list_directory_skips_empty_name(
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 ",
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 valid.txt",
     ]
-    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
-    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+    mock_list_retrbinary(mocker, entries)
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -439,8 +475,7 @@ async def test_list_directory_skips_entries_with_separators(
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 bad\\file.txt",
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 good.txt",
     ]
-    retrlines_mock = mocker.patch("pyftpkit.ftpfs.FTP.retrlines")
-    retrlines_mock.side_effect = lambda _, callback: list(map(callback, entries))
+    mock_list_retrbinary(mocker, entries)
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
