@@ -54,7 +54,7 @@ class _OutstandingDirectoryTracker:
 
     def __init__(self, initial: int = 0) -> None:
         if initial < 0:
-            raise ValueError("initial must be non-negative")
+            raise ValueError("Initial must be non-negative.")
 
         self._complete = asyncio.Event()
         self._count = initial

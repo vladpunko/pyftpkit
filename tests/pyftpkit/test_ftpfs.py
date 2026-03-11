@@ -24,7 +24,10 @@ from pyftpkit.exceptions import (
     FTPPathError,
     FTPPathNotAbsoluteError,
 )
-from pyftpkit.ftpfs import FTPEntryType, FTPFileSystem
+from pyftpkit.ftpfs import (
+    FTPEntryType,
+    FTPFileSystem,
+)
 
 
 @pytest.fixture
@@ -713,6 +716,158 @@ async def test_walk_queue_full_does_not_hang(mocker, connection_parameters, capl
     message = "An unexpected error occurred at this program runtime."
     assert message in caplog.text
     assert "Walk worker error." in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_walk_discovery_queue_full_does_not_hang(mocker, connection_parameters):
+    class _QueueWrapper(asyncio.Queue):
+        def __init__(self, *args, raise_on_put_nowait=False, **kwargs):
+            super().__init__(*args, **kwargs)
+
+            self._raise_on_put_nowait = raise_on_put_nowait
+
+        def put_nowait(self, item):
+            if self._raise_on_put_nowait:
+                raise asyncio.QueueFull()
+
+            return super().put_nowait(item)
+
+    queue_calls = {"count": 0}
+
+    def _queue_factory(*args, **kwargs):
+        queue_calls["count"] += 1
+        raise_on_put_nowait = queue_calls["count"] == 3
+
+        return _QueueWrapper(*args, raise_on_put_nowait=raise_on_put_nowait, **kwargs)
+
+    async def _listdir(*args, **kwargs):
+        yield (FTPEntryType.DIRECTORY, "/root/subdir")
+        return
+        yield
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", side_effect=_queue_factory)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+
+        output = []
+        async for directory_path, entry_type, entry_path in ftp_filesystem.walk(
+            "/root"
+        ):
+            output.append((directory_path, entry_type, entry_path))
+
+    expected_output = ("/root", FTPEntryType.DIRECTORY, "/root/subdir")
+    assert expected_output in output
+
+
+@pytest.mark.asyncio
+async def test_walk_drains_output_queue_after_timeout(mocker, connection_parameters):
+    async def _wait_for_timeout(awaitable, *args, **kwargs):
+        await asyncio.sleep(0)
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        raise asyncio.TimeoutError
+
+    async def _listdir(*args, **kwargs):
+        yield (FTPEntryType.FILE, "/root/file.txt")
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch("pyftpkit.ftpfs.asyncio.wait_for", new=_wait_for_timeout)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+
+        output = []
+        async for directory_path, entry_type, entry_path in ftp_filesystem.walk(
+            "/root"
+        ):
+            output.append((directory_path, entry_type, entry_path))
+
+    expected_output = ("/root", FTPEntryType.FILE, "/root/file.txt")
+    assert output == [expected_output]
+
+
+@pytest.mark.asyncio
+async def test_walk_drains_output_queue_exception_after_timeout(
+    mocker, connection_parameters, caplog
+):
+    async def _wait_for_timeout(awaitable, timeout, *args, **kwargs):
+        if timeout == 0.1 and asyncio.iscoroutine(awaitable):
+            await asyncio.sleep(0)
+            if hasattr(awaitable, "close"):
+                awaitable.close()
+            raise asyncio.TimeoutError
+        return await real_wait_for(awaitable, timeout, *args, **kwargs)
+
+    async def _listdir(*args, **kwargs):
+        yield (FTPEntryType.FILE, "/root/file.txt")
+
+    class _OutputExceptionQueue(asyncio.Queue):
+        async def put(self, item):
+            if not isinstance(item, Exception):
+                item = RuntimeError("queued output failure")
+            await super().put(item)
+
+    class _FakePool:
+        def __init__(self, executor):
+            self.executor = executor
+
+        async def get(self):
+            return object()
+
+        async def release(self, _ftp):
+            return None
+
+    real_wait_for = asyncio.wait_for
+    original_queue = asyncio.Queue
+
+    def _queue_factory(*args, **kwargs):
+        maxsize = kwargs.get("maxsize", 0)
+        if maxsize:
+            return _OutputExceptionQueue(*args, **kwargs)
+        return original_queue(*args, **kwargs)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        ftp_filesystem = FTPFileSystem(
+            connection_parameters=connection_parameters, executor=executor
+        )
+        mocker.patch.object(ftp_filesystem, "_pool", _FakePool(executor))
+        mocker.patch("pyftpkit.ftpfs.asyncio.Queue", side_effect=_queue_factory)
+        mocker.patch("pyftpkit.ftpfs.asyncio.wait_for", new=_wait_for_timeout)
+        mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
+
+        with caplog.at_level(logging.ERROR, logger="pyftpkit"):
+            with pytest.raises(RuntimeError) as error:
+                await drain_async_iterator(ftp_filesystem.walk("/root"))
+
+    message = "Walk worker error."
+    assert message in str(error.value)
+    assert caplog.text == ""
 
 
 @pytest.mark.asyncio

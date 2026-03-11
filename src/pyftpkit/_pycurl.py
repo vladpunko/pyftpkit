@@ -264,10 +264,10 @@ class PycURL:
             # that has already been closed.
             self._curl.setopt(pycurl.WRITEFUNCTION, lambda x: len(x))
 
-            # FTP transfers establish two sockets: one for the control connection and
-            # another for the data transfer. Rapidly transferring numerous small files
-            # can quickly consume available network ports, as many short-lived
-            # connections remain in the `TIME_WAIT` state.
+            # Brief pacing between transfers. This does not make `TIME_WAIT` time
+            # expire, but it can reduce burst pressure on ephemeral ports, give
+            # cURL and the FTP server time to finish connection teardown, and improve
+            # the odds of control-connection reuse on the next transfer.
             pause_seconds = self._connection_parameters.transfer_pause_seconds
             if pause_seconds > 0:
                 time.sleep(pause_seconds)

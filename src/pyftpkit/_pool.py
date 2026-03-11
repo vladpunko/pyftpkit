@@ -104,7 +104,7 @@ class FTPPoolExecutor:
             If the connection or login fails due to network or authentication issues.
         """
         try:
-            ftp = FTP()
+            ftp = FTP(timeout=self._connection_parameters.timeout)
             ftp.connect(
                 self._connection_parameters.host,
                 self._connection_parameters.port,
