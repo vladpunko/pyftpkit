@@ -272,7 +272,7 @@ class PycURL:
             if pause_seconds > 0:
                 time.sleep(pause_seconds)
 
-    def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
+    def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> float:
         """Uploads a local file to the remote FTP server.
 
         Automatically converts the destination path to a full FTP URL and supports
@@ -287,6 +287,11 @@ class PycURL:
 
         dst : str or os.PathLike
             Path on the FTP server where the file should be placed.
+
+        Returns
+        -------
+        float
+            The total number of bytes successfully uploaded.
 
         Raises
         ------
@@ -359,7 +364,12 @@ class PycURL:
             with io.open(src, mode="rb") as stream:
                 self._curl.setopt(pycurl.READFUNCTION, stream.read)
                 self._perform_with_retries()
+                size_bytes = typing.cast(
+                    float, self._curl.getinfo(pycurl.SIZE_UPLOAD)  # type: ignore
+                )
                 logger.debug("Finished uploading %r to %r on the FTP server.", src, dst)
+
+                return size_bytes
         except pycurl.error as err:
             logger.exception("File could not be uploaded to the FTP server.")
             raise FTPError(
@@ -459,7 +469,7 @@ class PycURLPoolManager:
                 self._pool.put(curl)
                 logger.debug("Released instance: %d", id(curl))
 
-    def download(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
+    def download(self, src: str | os.PathLike, dst: str | os.PathLike) -> float:
         """Downloads a file from the FTP server using a pooled `PycURL` instance.
 
         Parameters
@@ -469,11 +479,16 @@ class PycURLPoolManager:
 
         dst : str or os.PathLike
             Local path where the file will be saved.
+
+        Returns
+        -------
+        float
+            The total number of bytes successfully downloaded.
         """
         with self.acquire() as curl:
-            curl.download(src, dst)
+            return curl.download(src, dst)
 
-    def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> None:
+    def upload(self, src: str | os.PathLike, dst: str | os.PathLike) -> float:
         """Uploads a local file to the FTP server using a pooled `PycURL` instance.
 
         Parameters
@@ -483,6 +498,11 @@ class PycURLPoolManager:
 
         dst : str or os.PathLike
             Destination path on the FTP server.
+
+        Returns
+        -------
+        float
+            The total number of bytes successfully uploaded.
         """
         with self.acquire() as curl:
-            curl.upload(src, dst)
+            return curl.upload(src, dst)

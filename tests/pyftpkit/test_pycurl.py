@@ -1289,7 +1289,11 @@ def test_pool_manager_upload_files_to_file_transfer_protocol_server(
             local_source_path.write_text(content, encoding="utf-8")
             remote_destination_path = "/" + local_source_path.name
             file_contents_by_remote_path[remote_destination_path] = content
-            pool_manager.upload(str(local_source_path), remote_destination_path)
+            size_bytes = pool_manager.upload(
+                str(local_source_path), remote_destination_path
+            )
+
+            assert size_bytes == len(content.encode("utf-8"))
 
         for remote_path, content in file_contents_by_remote_path.items():
             server_path = pathlib.Path(ftp_server.home) / remote_path.lstrip("/")
@@ -1318,5 +1322,7 @@ def test_pool_manager_download_files_from_file_transfer_protocol_server(
 
         for remote_path, content in file_contents_by_remote_path.items():
             local_destination_path = tmp_path / pathlib.PurePosixPath(remote_path).name
-            pool_manager.download(remote_path, str(local_destination_path))
+            size_bytes = pool_manager.download(remote_path, str(local_destination_path))
+
+            assert size_bytes == len(content.encode("utf-8"))
             assert local_destination_path.read_text(encoding="utf-8") == content
