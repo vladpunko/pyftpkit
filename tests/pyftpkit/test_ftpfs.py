@@ -155,7 +155,7 @@ def test_ftp_path_type_helpers(entry_type, expect_dir, expect_file, expect_symli
     ftp_path = FTPPath(entry_path="/root/item", entry_type=entry_type)
 
     assert ftp_path.is_dir() is expect_dir
-    assert ftp_path.if_file() is expect_file
+    assert ftp_path.is_file() is expect_file
     assert ftp_path.is_symlink() is expect_symlink
 
 
@@ -751,6 +751,61 @@ async def test_walk_trailing_whitespace(ftp_server, connection_parameters):
 
     assert set(collected_dirs) == {expected_directory}
     assert set(collected_nondirs) == expected_files
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "symlink_name, symlink_target",
+    [
+        ("a", "../data"),
+        ("b", "/data"),
+    ],
+)
+async def test_walk_skips_symlink_cycles(
+    caplog,
+    ftp_server,
+    connection_parameters,
+    symlink_name,
+    symlink_target,
+):
+    home = pathlib.Path(ftp_server.home)
+    data_directory = home / "data"
+    data_directory.mkdir()
+    (data_directory / "file.txt").write_text("", encoding="utf-8")
+    (data_directory / symlink_name).symlink_to(symlink_target)
+
+    async def _collect_walk_entries(ftp_filesystem, root_path):
+        collected = []
+        async for directory_path, entry in ftp_filesystem.walk(root_path):
+            collected.append((directory_path, entry))
+        return collected
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            output = await asyncio.wait_for(
+                _collect_walk_entries(ftp_filesystem, "/data"), timeout=2
+            )
+
+    expected_entry = FTPPath(
+        entry_path="/data/file.txt",
+        entry_type=FTPEntryType.FILE,
+    )
+    assert ("/data", expected_entry) in output
+
+    unexpected_path = "/data/{0}".format(symlink_name)
+    assert all(entry.entry_path != unexpected_path for _, entry in output)
+
+    expected_target = symlink_target
+    if not symlink_target.startswith(posixpath.sep):
+        expected_target = posixpath.join("/data", symlink_target)
+    expected_target = posixpath.normpath(expected_target)
+
+    message = "Skipping symlink cycle: {0!r} to {1!r}".format(
+        unexpected_path, expected_target
+    )
+    assert message in caplog.text
 
 
 @pytest.mark.asyncio

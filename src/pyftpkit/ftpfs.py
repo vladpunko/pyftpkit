@@ -125,7 +125,7 @@ class FTPPath(os.PathLike[str]):
         """Indicates whether this entry represents a directory."""
         return self.entry_type == FTPEntryType.DIRECTORY
 
-    def if_file(self) -> bool:
+    def is_file(self) -> bool:
         """Checks whether the entry corresponds to a file on the server."""
         return self.entry_type == FTPEntryType.FILE
 
@@ -172,7 +172,11 @@ class FTPFileSystem:
         await self._pool.close()
 
     async def _listdir(
-        self, path: str | os.PathLike, ftp: FTP
+        self,
+        path: str | os.PathLike,
+        ftp: FTP,
+        *,
+        visited: set[str] | None = None,
     ) -> typing.AsyncIterator[FTPPath]:
         """Retrieves the directory contents from the remote FTP server.
 
@@ -273,11 +277,17 @@ class FTPFileSystem:
             is_dir = line.startswith("d")
             is_symlink = line.startswith("l")
 
+            symlink_target: str | None = None
             if is_symlink:
                 try:
-                    name, _ = name.split(self._SYMLINK_SEP, maxsplit=1)
+                    name, symlink_target = name.split(self._SYMLINK_SEP, maxsplit=1)
                 except ValueError:
                     logger.debug("Skipping bad symlink: %r", entry)
+                    continue
+
+                symlink_target = symlink_target.strip()
+                if not symlink_target:
+                    logger.debug("Skipping bad symlink with empty target: %r", entry)
                     continue
 
             if not name:
@@ -293,6 +303,24 @@ class FTPFileSystem:
                 continue
 
             abspath = posixpath.join(path, name)
+
+            if is_symlink and visited is not None and symlink_target is not None:
+                # Resolve symlink targets and skip cycles when the normalized
+                # destination has already been visited during traversal.
+                resolved_target = symlink_target
+                if not symlink_target.startswith(posixpath.sep):
+                    resolved_target = posixpath.join(path, symlink_target)
+
+                normalized_target = posixpath.normpath(resolved_target)
+                if normalized_target in visited:
+                    logger.debug(
+                        "Skipping symlink cycle: %r to %r",
+                        abspath,
+                        normalized_target,
+                    )
+                    continue
+                # Track symlink targets only to avoid unbounded growth for large trees.
+                visited.add(normalized_target)
 
             entry_type = FTPEntryType.FILE
             if is_dir:
@@ -457,6 +485,10 @@ class FTPFileSystem:
         tracker = _OutstandingDirectoryTracker(initial=1)
         await _schedule_directory(path)
 
+        # Track only normalized symlink targets (seeded with the root) to
+        # prevent cycles without retaining every directory path in memory.
+        visited: set[str] = {posixpath.normpath(path)}
+
         async def _worker() -> None:
             """Worker coroutine that retrieves directories from the task queue.
 
@@ -472,7 +504,9 @@ class FTPFileSystem:
                     except asyncio.CancelledError:
                         break
                     try:
-                        async for entry in self._listdir(dirpath, ftp=ftp):
+                        async for entry in self._listdir(
+                            dirpath, ftp=ftp, visited=visited
+                        ):
                             await output_queue.put((dirpath, entry))
                             if entry.is_dir():
                                 await tracker.increment()

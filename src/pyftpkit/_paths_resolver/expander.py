@@ -224,7 +224,7 @@ class RemoteFTPExpander(Expander):
                             if entry.entry_path != target_path:
                                 continue
 
-                            if entry.if_file():
+                            if entry.is_file():
                                 yield src, dst
 
                                 return
@@ -232,7 +232,7 @@ class RemoteFTPExpander(Expander):
                             break
 
             async for _, entry in ftpfs.walk(src):
-                if not entry.if_file():
+                if not entry.is_file():
                     continue
 
                 if not entry.entry_path.startswith(root_prefix):
