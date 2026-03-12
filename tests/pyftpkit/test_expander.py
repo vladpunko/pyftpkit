@@ -18,7 +18,7 @@ from pyftpkit.exceptions import (
     FTPPathError,
     FTPPathNotAbsoluteError,
 )
-from pyftpkit.ftpfs import FTPEntryType
+from pyftpkit.ftpfs import FTPEntryType, FTPPath
 
 
 async def _drain_async_iterator(generator):
@@ -259,8 +259,8 @@ async def test_remote_expander_short_circuits_for_file(
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory(self, path):
-        yield (FTPEntryType.FILE, "/a.txt")
-        yield (FTPEntryType.FILE, "/b.txt")
+        yield FTPPath(entry_path="/a.txt", entry_type=FTPEntryType.FILE)
+        yield FTPPath(entry_path="/b.txt", entry_type=FTPEntryType.FILE)
 
     mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir",
@@ -281,7 +281,7 @@ async def test_remote_expander_falls_back_to_walk_when_list_directory_returns_di
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory():
-        yield (FTPEntryType.DIRECTORY, "/data")
+        yield FTPPath(entry_path="/data", entry_type=FTPEntryType.DIRECTORY)
 
     list_directory_mock = mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir"
@@ -289,7 +289,10 @@ async def test_remote_expander_falls_back_to_walk_when_list_directory_returns_di
     list_directory_mock.return_value = _list_directory()
 
     async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
+        yield (
+            "",
+            FTPPath(entry_path="/data/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     walk_mock = mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk")
     walk_mock.return_value = _walk()
@@ -343,8 +346,11 @@ async def test_remote_expander_skips_non_file_entries_from_walk(
     list_directory_mock.return_value = _list_directory()
 
     async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.DIRECTORY, "/data/subdir")
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
+        yield (
+            "",
+            FTPPath(entry_path="/data/subdir", entry_type=FTPEntryType.DIRECTORY),
+        )
+        yield ("", FTPPath(entry_path="/data/file.txt", entry_type=FTPEntryType.FILE))
 
     walk_mock = mocker.patch("pyftpkit._paths_resolver.expander.FTPFileSystem.walk")
     walk_mock.return_value = _walk()
@@ -410,7 +416,7 @@ async def test_remote_expander_skips_list_directory_when_basename_missing(
     )
 
     async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
+        yield ("", FTPPath(entry_path="/data/file.txt", entry_type=FTPEntryType.FILE))
 
     list_directory_mock = mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir"
@@ -501,7 +507,7 @@ async def test_remote_expander_raises_when_walk_yields_outside_root(
             yield
 
     async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/other/file.txt")
+        yield ("", FTPPath(entry_path="/other/file.txt", entry_type=FTPEntryType.FILE))
 
     mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory
@@ -528,10 +534,10 @@ async def test_remote_expander_list_directory_skips_non_matching_entries(
     expander = RemoteFTPExpander(connection_parameters=connection_parameters_no_connect)
 
     async def _list_directory(*args, **kwargs):
-        yield (FTPEntryType.FILE, "/other")
+        yield FTPPath(entry_path="/other", entry_type=FTPEntryType.FILE)
 
     async def _walk(*args, **kwargs):
-        yield ("", FTPEntryType.FILE, "/data/file.txt")
+        yield ("", FTPPath(entry_path="/data/file.txt", entry_type=FTPEntryType.FILE))
 
     mocker.patch(
         "pyftpkit._paths_resolver.expander.FTPFileSystem.listdir", new=_list_directory

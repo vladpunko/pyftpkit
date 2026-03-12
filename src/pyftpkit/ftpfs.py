@@ -27,7 +27,7 @@ from pyftpkit.exceptions import (
     FTPPathNotAbsoluteError,
 )
 
-__all__ = ["FTPEntryType", "FTPFileSystem"]
+__all__ = ["FTPEntryType", "FTPPath", "FTPFileSystem"]
 
 logger = logging.getLogger("pyftpkit")
 
@@ -91,6 +91,47 @@ class _OutstandingDirectoryTracker:
 class FTPEntryType(int, enum.Enum):
     DIRECTORY = 0
     FILE = 1
+    SYMLINK = 2
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class FTPPath(os.PathLike[str]):
+    """Represents a single entry returned from an FTP `LIST` operation."""
+
+    entry_path: str
+    entry_type: FTPEntryType
+
+    def __fspath__(self) -> str:
+        return self.entry_path
+
+    def __str__(self) -> str:
+        return self.entry_path
+
+    def __repr__(self) -> str:
+        """Returns string representation of an instance for debugging."""
+
+        return "{0!s}(entry_path={1!r}, entry_type={2!s}.{3!s})".format(
+            self.__class__.__name__,
+            self.entry_path,
+            self.entry_type.__class__.__name__,
+            self.entry_type.name,
+        )
+
+    @property
+    def name(self) -> str:
+        return posixpath.basename(self.entry_path)
+
+    def is_dir(self) -> bool:
+        """Indicates whether this entry represents a directory."""
+        return self.entry_type == FTPEntryType.DIRECTORY
+
+    def if_file(self) -> bool:
+        """Checks whether the entry corresponds to a file on the server."""
+        return self.entry_type == FTPEntryType.FILE
+
+    def is_symlink(self) -> bool:
+        """Checks if the entry denotes a symlink."""
+        return self.entry_type == FTPEntryType.SYMLINK
 
 
 class FTPFileSystem:
@@ -132,7 +173,7 @@ class FTPFileSystem:
 
     async def _listdir(
         self, path: str | os.PathLike, ftp: FTP
-    ) -> typing.AsyncIterator[tuple[FTPEntryType, str]]:
+    ) -> typing.AsyncIterator[FTPPath]:
         """Retrieves the directory contents from the remote FTP server.
 
         Notes
@@ -228,7 +269,11 @@ class FTPFileSystem:
             if name in (posixpath.curdir, posixpath.pardir):
                 continue
 
-            if line.startswith("l"):
+            # Infer entry type from `LIST` permission prefix.
+            is_dir = line.startswith("d")
+            is_symlink = line.startswith("l")
+
+            if is_symlink:
                 try:
                     name, _ = name.split(self._SYMLINK_SEP, maxsplit=1)
                 except ValueError:
@@ -248,14 +293,16 @@ class FTPFileSystem:
                 continue
 
             abspath = posixpath.join(path, name)
-            if line.startswith("d"):
-                yield FTPEntryType.DIRECTORY, abspath
-            else:
-                yield FTPEntryType.FILE, abspath
 
-    async def listdir(
-        self, path: str | os.PathLike
-    ) -> typing.AsyncIterator[tuple[FTPEntryType, str]]:
+            entry_type = FTPEntryType.FILE
+            if is_dir:
+                entry_type = FTPEntryType.DIRECTORY
+            elif is_symlink:
+                entry_type = FTPEntryType.SYMLINK
+
+            yield FTPPath(entry_path=abspath, entry_type=entry_type)
+
+    async def listdir(self, path: str | os.PathLike) -> typing.AsyncIterator[FTPPath]:
         """Lists the contents of a remote FTP directory.
 
         Parameters
@@ -265,9 +312,8 @@ class FTPFileSystem:
 
         Yields
         -------
-        tuple[FTPEntryType, str]
-            - The entry type.
-            - The absolute remote path of the entry.
+        FTPPath
+            A parsed entry describing the type and absolute remote path.
 
         Raises
         ------
@@ -304,7 +350,7 @@ class FTPFileSystem:
 
     async def walk(
         self, path: str | os.PathLike
-    ) -> typing.AsyncIterator[tuple[str, FTPEntryType, str]]:
+    ) -> typing.AsyncIterator[tuple[str, FTPPath]]:
         """Asynchronously traverses a remote FTP directory tree.
 
         - Uses worker coroutines to parallelize listing operations across
@@ -320,10 +366,9 @@ class FTPFileSystem:
 
         Yields
         ------
-        tuple[str, FTPEntryType, str]
+        tuple[str, FTPPath]
             - The directory being traversed.
-            - The entry type (directory or file).
-            - The absolute path of the entry.
+            - The parsed entry describing the type and absolute remote path.
 
         Raises
         ------
@@ -389,8 +434,8 @@ class FTPFileSystem:
         queue: asyncio.Queue[str] = asyncio.Queue()
 
         # Bounded output queue: applies backpressure to the consumer.
-        output_queue: asyncio.Queue[tuple[str, FTPEntryType, str] | Exception] = (
-            asyncio.Queue(maxsize=max(1, self._connection_parameters.max_queues_size))
+        output_queue: asyncio.Queue[tuple[str, FTPPath] | Exception] = asyncio.Queue(
+            maxsize=max(1, self._connection_parameters.max_queues_size)
         )
 
         # Queue of discovered child directories reported back by workers.
@@ -427,14 +472,12 @@ class FTPFileSystem:
                     except asyncio.CancelledError:
                         break
                     try:
-                        async for entry_type, entry_path in self._listdir(
-                            dirpath, ftp=ftp
-                        ):
-                            await output_queue.put((dirpath, entry_type, entry_path))
-                            if entry_type == FTPEntryType.DIRECTORY:
+                        async for entry in self._listdir(dirpath, ftp=ftp):
+                            await output_queue.put((dirpath, entry))
+                            if entry.is_dir():
                                 await tracker.increment()
                                 try:
-                                    discovery_queue.put_nowait(entry_path)
+                                    discovery_queue.put_nowait(entry.entry_path)
                                 except asyncio.QueueFull:
                                     # Discovery notifications are best-effort to avoid
                                     # blocking workers during shutdown.
@@ -946,17 +989,17 @@ class FTPFileSystem:
                 stack.append((dirpath, True))
 
                 try:
-                    async for entry_type, entry_path in self._listdir(dirpath, ftp=ftp):
-                        if entry_type == FTPEntryType.DIRECTORY:
-                            stack.append((entry_path, False))
+                    async for entry in self._listdir(dirpath, ftp=ftp):
+                        if entry.is_dir():
+                            stack.append((entry.entry_path, False))
 
                             continue
 
-                        logger.debug("Attempting to remove: %r", entry_path)
+                        logger.debug("Attempting to remove: %r", entry.entry_path)
                         await loop.run_in_executor(
-                            self._pool.executor, ftp.delete, entry_path
+                            self._pool.executor, ftp.delete, entry.entry_path
                         )
-                        logger.debug("File has been removed: %r", entry_path)
+                        logger.debug("File has been removed: %r", entry.entry_path)
                 except ftplib.all_errors as err:
                     logger.exception(
                         "An FTP error occurred while processing directory entries."
@@ -1064,7 +1107,8 @@ class FTPFileSystem:
         # and deadlock when we need a connection for deletions.
         ftp = await self._pool.get()
         try:
-            async for _, entry_type, entry_path in self.walk(path):
+            async for _, entry in self.walk(path):
+                entry_path = entry.entry_path
                 if not entry_path.startswith(root_prefix):
                     logger.error(
                         "The walk encountered a path outside the expected directory."
@@ -1074,7 +1118,7 @@ class FTPFileSystem:
                             entry_path
                         )
                     )
-                if entry_type == FTPEntryType.DIRECTORY:
+                if entry.is_dir():
                     if path == posixpath.sep:
                         relative_path = entry_path.lstrip(posixpath.sep)
                     else:

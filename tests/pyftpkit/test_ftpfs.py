@@ -27,6 +27,7 @@ from pyftpkit.exceptions import (
 from pyftpkit.ftpfs import (
     FTPEntryType,
     FTPFileSystem,
+    FTPPath,
 )
 
 
@@ -90,11 +91,11 @@ async def list_directory(ftp_filesystem, path):
     directories = []
     non_directories = []
 
-    async for entry_type, entry_path in ftp_filesystem.listdir(str(path)):
-        if entry_type == FTPEntryType.DIRECTORY:
-            directories.append(entry_path)
+    async for entry in ftp_filesystem.listdir(str(path)):
+        if entry.is_dir():
+            directories.append(entry.entry_path)
         else:
-            non_directories.append(entry_path)
+            non_directories.append(entry.entry_path)
 
     return directories, non_directories
 
@@ -115,6 +116,47 @@ def mock_list_retrbinary(mocker, entries, encoding="utf-8"):
     retrbinary_mock.side_effect = _emit
 
     return retrbinary_mock
+
+
+def test_ftp_path_exposes_pathlike_string():
+    ftp_path = FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
+
+    assert str(ftp_path) == "/root/file.txt"
+    assert os.fspath(ftp_path) == "/root/file.txt"
+
+
+def test_ftp_path_name_returns_basename():
+    ftp_path = FTPPath(
+        entry_path="/root/subdir/file.txt",
+        entry_type=FTPEntryType.FILE,
+    )
+
+    assert ftp_path.name == "file.txt"
+
+
+def test_ftp_path_representation_includes_type_and_path():
+    ftp_path = FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
+
+    assert (
+        repr(ftp_path)
+        == "FTPPath(entry_path='/root/file.txt', entry_type=FTPEntryType.FILE)"
+    )
+
+
+@pytest.mark.parametrize(
+    "entry_type, expect_dir, expect_file, expect_symlink",
+    [
+        (FTPEntryType.DIRECTORY, True, False, False),
+        (FTPEntryType.FILE, False, True, False),
+        (FTPEntryType.SYMLINK, False, False, True),
+    ],
+)
+def test_ftp_path_type_helpers(entry_type, expect_dir, expect_file, expect_symlink):
+    ftp_path = FTPPath(entry_path="/root/item", entry_type=entry_type)
+
+    assert ftp_path.is_dir() is expect_dir
+    assert ftp_path.if_file() is expect_file
+    assert ftp_path.is_symlink() is expect_symlink
 
 
 @pytest.mark.asyncio
@@ -169,11 +211,11 @@ async def test_list_directory_accepts_pathlike_root(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
         with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
-            async for entry_type, entry_path in ftp_filesystem.listdir(root):
-                if entry_type == FTPEntryType.DIRECTORY:
-                    directories.append(entry_path)
+            async for entry in ftp_filesystem.listdir(root):
+                if entry.is_dir():
+                    directories.append(entry.entry_path)
                 else:
-                    non_directories.append(entry_path)
+                    non_directories.append(entry.entry_path)
 
     assert set(directories) == {str(root / "dir")}
     assert set(non_directories) == {str(root / "file.txt")}
@@ -418,8 +460,7 @@ async def test_list_directory_decodes_with_fallback_encoding(
     assert non_directories == [str(root / "café.txt")]
 
     message = (
-        "Failed to decode FTP using {0!r} for: {1!r}\n"
-        "Message decoded with: {2!r}"
+        "Failed to decode FTP using {0!r} for: {1!r}\n" "Message decoded with: {2!r}"
     )
     message = message.format("utf-8", str(root), "latin-1")
     assert message in caplog.text
@@ -497,11 +538,11 @@ async def test_walk_traverses_directory_tree(
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        async for _, entry_type, entry_path in ftp_filesystem.walk(str(root)):
-            if entry_type == FTPEntryType.DIRECTORY:
-                collected_dirs.append(entry_path)
+        async for _, entry in ftp_filesystem.walk(str(root)):
+            if entry.is_dir():
+                collected_dirs.append(entry.entry_path)
             else:
-                collected_nondirs.append(entry_path)
+                collected_nondirs.append(entry.entry_path)
 
     assert len(collected_dirs) == len(directory_tree.ftp_directories)
     assert len(collected_nondirs) == len(directory_tree.ftp_non_directories)
@@ -543,11 +584,11 @@ async def test_walk_with_minimal_queue_capacity_traverses_deep_tree(
         directories = set()
         files = set()
 
-        async for _, entry_type, entry_path in ftp_filesystem.walk(str(walk_root)):
-            if entry_type == FTPEntryType.DIRECTORY:
-                directories.add(entry_path)
+        async for _, entry in ftp_filesystem.walk(str(walk_root)):
+            if entry.is_dir():
+                directories.add(entry.entry_path)
             else:
-                files.add(entry_path)
+                files.add(entry.entry_path)
 
         return directories, files
 
@@ -576,8 +617,8 @@ async def test_walk_accepts_pathlike_root(ftp_server, connection_parameters):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        async for _, entry_type, entry_path in ftp_filesystem.walk(root):
-            collected.append((entry_type, entry_path))
+        async for _, entry in ftp_filesystem.walk(root):
+            collected.append((entry.entry_type, entry.entry_path))
 
     assert (FTPEntryType.DIRECTORY, str(root / "dir")) in collected
     assert (FTPEntryType.FILE, str(root / "dir" / "file.txt")) in collected
@@ -603,7 +644,7 @@ async def test_walk_no_permission(
     ) as ftp_filesystem:
         with caplog.at_level(logging.ERROR, logger="pyftpkit"):
             with pytest.raises(RuntimeError) as error:
-                async for _, _, _ in ftp_filesystem.walk(str(root)):
+                async for _, _ in ftp_filesystem.walk(str(root)):
                     pass
 
     message = "An unexpected error occurred at this program runtime."
@@ -696,13 +737,11 @@ async def test_walk_trailing_whitespace(ftp_server, connection_parameters):
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        async for _, entry_type, entry_path in ftp_filesystem.walk(
-            str(root / directory_name)
-        ):
-            if entry_type == FTPEntryType.DIRECTORY:
-                collected_dirs.append(entry_path)
+        async for _, entry in ftp_filesystem.walk(str(root / directory_name)):
+            if entry.is_dir():
+                collected_dirs.append(entry.entry_path)
             else:
-                collected_nondirs.append(entry_path)
+                collected_nondirs.append(entry.entry_path)
 
     expected_directory = str(root / directory_name / subdirectory_name)
     expected_files = {
@@ -776,7 +815,7 @@ async def test_walk_discovery_queue_full_does_not_hang(mocker, connection_parame
         return _QueueWrapper(*args, raise_on_put_nowait=raise_on_put_nowait, **kwargs)
 
     async def _listdir(*args, **kwargs):
-        yield (FTPEntryType.DIRECTORY, "/root/subdir")
+        yield FTPPath(entry_path="/root/subdir", entry_type=FTPEntryType.DIRECTORY)
         return
         yield
 
@@ -799,13 +838,13 @@ async def test_walk_discovery_queue_full_does_not_hang(mocker, connection_parame
         mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
 
         output = []
-        async for directory_path, entry_type, entry_path in ftp_filesystem.walk(
-            "/root"
-        ):
-            output.append((directory_path, entry_type, entry_path))
+        async for directory_path, entry in ftp_filesystem.walk("/root"):
+            output.append((directory_path, entry))
 
-    expected_output = ("/root", FTPEntryType.DIRECTORY, "/root/subdir")
-    assert expected_output in output
+    expected_entry = FTPPath(
+        entry_path="/root/subdir", entry_type=FTPEntryType.DIRECTORY
+    )
+    assert ("/root", expected_entry) in output
 
 
 @pytest.mark.asyncio
@@ -817,7 +856,7 @@ async def test_walk_drains_output_queue_after_timeout(mocker, connection_paramet
         raise asyncio.TimeoutError
 
     async def _listdir(*args, **kwargs):
-        yield (FTPEntryType.FILE, "/root/file.txt")
+        yield FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
 
     class _FakePool:
         def __init__(self, executor):
@@ -838,13 +877,11 @@ async def test_walk_drains_output_queue_after_timeout(mocker, connection_paramet
         mocker.patch.object(ftp_filesystem, "_listdir", _listdir)
 
         output = []
-        async for directory_path, entry_type, entry_path in ftp_filesystem.walk(
-            "/root"
-        ):
-            output.append((directory_path, entry_type, entry_path))
+        async for directory_path, entry in ftp_filesystem.walk("/root"):
+            output.append((directory_path, entry))
 
-    expected_output = ("/root", FTPEntryType.FILE, "/root/file.txt")
-    assert output == [expected_output]
+    expected_entry = FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
+    assert output == [("/root", expected_entry)]
 
 
 @pytest.mark.asyncio
@@ -860,7 +897,7 @@ async def test_walk_drains_output_queue_exception_after_timeout(
         return await real_wait_for(awaitable, timeout, *args, **kwargs)
 
     async def _listdir(*args, **kwargs):
-        yield (FTPEntryType.FILE, "/root/file.txt")
+        yield FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
 
     class _OutputExceptionQueue(asyncio.Queue):
         async def put(self, item):
@@ -1101,7 +1138,7 @@ async def test_walk_output_queue_full_fails_fast(
             return super().put_nowait(item)
 
     async def _listdir(*args, **kwargs):
-        yield (FTPEntryType.FILE, "/root/file.txt")
+        yield FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
 
     class _FakePool:
         def __init__(self, executor):
@@ -1137,7 +1174,10 @@ async def test_walk_generator_close_does_not_raise(mocker, connection_parameters
 
     async def _listdir(*args, **kwargs):
         for index in range(5):
-            yield (FTPEntryType.FILE, f"/root/file{index}.txt")
+            yield FTPPath(
+                entry_path="/root/file{0}.txt".format(index),
+                entry_type=FTPEntryType.FILE,
+            )
 
     async with FTPFileSystem(
         connection_parameters=connection_parameters
@@ -1169,7 +1209,7 @@ async def test_walk_cancels_join_task_on_close(mocker, connection_parameters):
         return task
 
     async def _listdir(*args, **kwargs):
-        yield (FTPEntryType.FILE, "/root/file.txt")
+        yield FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
         await asyncio.sleep(1)
 
     class _FakePool:
@@ -1244,8 +1284,8 @@ async def test_walk_stop_event_breaks_main_loop(connection_parameters, mocker, c
     async def _listdir(*args, **kwargs):
         path = args[1]
         if path == "/":
-            yield (FTPEntryType.DIRECTORY, "/subdir1")
-            yield (FTPEntryType.DIRECTORY, "/subdir2")
+            yield FTPPath(entry_path="/subdir1", entry_type=FTPEntryType.DIRECTORY)
+            yield FTPPath(entry_path="/subdir2", entry_type=FTPEntryType.DIRECTORY)
             await asyncio.sleep(0.05)
             return
         raise RuntimeError("listing failed for subdirectory")
@@ -1277,11 +1317,11 @@ async def test_walk_drain_output_queue(mocker, ftp_server, connection_parameters
     path.write_text("", encoding="utf-8")
 
     expected_directory = str(root / "test")
-    expected_output = (
-        expected_directory,
-        FTPEntryType.FILE,
-        str(root / "test" / "text.txt"),
+    expected_entry = FTPPath(
+        entry_path=str(root / "test" / "text.txt"),
+        entry_type=FTPEntryType.FILE,
     )
+    expected_output = (expected_directory, expected_entry)
 
     original_listdir = FTPFileSystem._listdir
 
@@ -1302,17 +1342,13 @@ async def test_walk_drain_output_queue(mocker, ftp_server, connection_parameters
     ) as ftp_filesystem:
         root_str = str(root)
 
-        async for directory_path_out, entry_type, entry_path in ftp_filesystem.walk(
-            root_str
-        ):
-            output.append((directory_path_out, entry_type, entry_path))
+        async for directory_path_out, entry in ftp_filesystem.walk(root_str):
+            output.append((directory_path_out, entry))
             if directory_path_out == root_str:
                 break
 
-        async for directory_path_out, entry_type, entry_path in ftp_filesystem.walk(
-            root_str
-        ):
-            output.append((directory_path_out, entry_type, entry_path))
+        async for directory_path_out, entry in ftp_filesystem.walk(root_str):
+            output.append((directory_path_out, entry))
 
     drained_item = next(
         (item for item in output if item[0] == expected_directory), None
@@ -1863,7 +1899,10 @@ async def test_remove_tree_file_delete_error_wrapped(
     caplog, connection_parameters, mocker
 ):
     async def _listdir(_self, path, _ftp=None, **kwargs):
-        yield (FTPEntryType.FILE, "{0}/file.txt".format(path))
+        yield FTPPath(
+            entry_path="{0}/file.txt".format(path),
+            entry_type=FTPEntryType.FILE,
+        )
 
     mocker.patch("pyftpkit.ftpfs.FTPFileSystem._listdir", new=_listdir)
     mocker.patch(
@@ -1973,7 +2012,7 @@ async def test_remove_tree_skips_root_on_visit(host, port, username, password, m
 
     async def _fake_listdir(self, dirpath, ftp=None):
         if dirpath == "/root":
-            yield (FTPEntryType.DIRECTORY, "/")
+            yield FTPPath(entry_path="/", entry_type=FTPEntryType.DIRECTORY)
             return
         if False:
             yield
@@ -2160,7 +2199,10 @@ async def test_remove_tree2_accepts_pathlike_root(
 
     async def _fake_walk(self, root_path):
         captured["path"] = root_path
-        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     async def _fake_rm(self, path, ftp=None):
         assert ftp is fake_ftp
@@ -2194,7 +2236,10 @@ async def test_remove_tree2_rejects_entries_outside_root(
     )
 
     async def _fake_walk(self, _path):
-        yield ("/root", FTPEntryType.FILE, "/other/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/other/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     class _FakePool:
         def __init__(self, executor):
@@ -2374,7 +2419,10 @@ async def test_remove_tree2_reserves_connection_before_walk(
 
     async def _fake_walk(self, _path):
         assert acquired.is_set()
-        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     async def _fake_rm(self, _path, ftp):
         assert ftp is fake_ftp
@@ -2481,7 +2529,10 @@ async def test_remove_tree2_propagates_rm_error(
             return None
 
     async def _fake_walk(self, _path):
-        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     async def _fake_rm(self, _path, ftp=None):
         raise FTPError("simulated removal failure")
@@ -2540,7 +2591,10 @@ async def test_remove_tree2_root_branch_strips_leading_separator(
             return None
 
     async def _fake_walk(self, _path):
-        yield ("/", FTPEntryType.DIRECTORY, "/child")
+        yield (
+            "/",
+            FTPPath(entry_path="/child", entry_type=FTPEntryType.DIRECTORY),
+        )
 
     async def _fake_rm(self, _path, ftp=None):
         return None
@@ -2612,7 +2666,10 @@ async def test_remove_tree2_skips_empty_and_root_paths(
             return iter(["", "/"])
 
     async def _fake_walk(self, _path):
-        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     async def _fake_rm(self, _path, ftp=None):
         return None
@@ -2676,7 +2733,10 @@ async def test_remove_tree2_directory_remove_error_wrapped(
             return iter(["child"])
 
     async def _fake_walk(self, _path):
-        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     async def _fake_rm(self, _path, ftp=None):
         return None
@@ -2741,7 +2801,10 @@ async def test_remove_tree2_target_directory_remove_error_wrapped(
             return None
 
     async def _fake_walk(self, _path):
-        yield ("/root", FTPEntryType.FILE, "/root/file.txt")
+        yield (
+            "/root",
+            FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE),
+        )
 
     async def _fake_rm(self, _path, ftp=None):
         return None
@@ -2817,7 +2880,10 @@ async def test_remove_tree2_collects_directory_paths(
             return None
 
     async def _fake_walk(self, _path):
-        yield (root_path, FTPEntryType.DIRECTORY, entry_path)
+        yield (
+            root_path,
+            FTPPath(entry_path=entry_path, entry_type=FTPEntryType.DIRECTORY),
+        )
 
     async def _fake_rm(self, _path, ftp=None):
         return None

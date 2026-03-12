@@ -13,10 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from pyftpkit.connection_parameters import ConnectionParameters
 from pyftpkit.exceptions import FTPPathError
-from pyftpkit.ftpfs import (
-    FTPEntryType,
-    FTPFileSystem,
-)
+from pyftpkit.ftpfs import FTPFileSystem, FTPPath
 
 __all__ = ["Expander", "LocalTreeExpander", "RemoteFTPExpander"]
 
@@ -222,34 +219,35 @@ class RemoteFTPExpander(Expander):
                     async with contextlib.aclosing(  # type: ignore
                         ftpfs.listdir(dirname)
                     ) as entries_iterator:
-                        async for entry_type, entry_path in entries_iterator:
-                            if entry_path != target_path:
+                        entry: FTPPath
+                        async for entry in entries_iterator:
+                            if entry.entry_path != target_path:
                                 continue
 
-                            if entry_type == FTPEntryType.FILE:
+                            if entry.if_file():
                                 yield src, dst
 
                                 return
 
                             break
 
-            async for _, entry_type, entry_path in ftpfs.walk(src):
-                if entry_type != FTPEntryType.FILE:
+            async for _, entry in ftpfs.walk(src):
+                if not entry.if_file():
                     continue
 
-                if not entry_path.startswith(root_prefix):
+                if not entry.entry_path.startswith(root_prefix):
                     logger.error(
                         "Walk yielded a path outside the requested source directory."
                     )
                     raise RuntimeError(
                         "Walk yielded a path outside the requested root: {0!r}".format(
-                            entry_path
+                            entry.entry_path
                         )
                     )
 
                 dst_path = posixpath.join(
                     dst,
-                    posixpath.relpath(entry_path, src),
+                    posixpath.relpath(entry.entry_path, src),
                 )
 
-                yield entry_path, dst_path
+                yield entry.entry_path, dst_path
