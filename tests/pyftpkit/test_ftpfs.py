@@ -394,13 +394,16 @@ async def test_list_directory_parse_error_wrapped(
 
 
 @pytest.mark.asyncio
-async def test_list_directory_bad_entry(mocker, ftp_server, connection_parameters):
+async def test_list_directory_bad_entry(
+    caplog, mocker, ftp_server, connection_parameters
+):
     root = pathlib.Path(ftp_server.root)
     entries = [
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 dir",
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 text.txt",
         "lrwxrwxrwx   1 owner group          11 Oct 27 09:17 symlink -> test.txt",
         "lrwxrwxrwx   1 owner group          11 Oct 27 09:17 bad_symlink",
+        "lrwxrwxrwx   1 owner group          11 Oct 27 09:18 empty ->   ",
         "",
         "error",
         "          ",
@@ -412,7 +415,11 @@ async def test_list_directory_bad_entry(mocker, ftp_server, connection_parameter
     async with FTPFileSystem(
         connection_parameters=connection_parameters
     ) as ftp_filesystem:
-        directories, non_directories = await list_directory(ftp_filesystem, root)
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            directories, non_directories = await list_directory(ftp_filesystem, root)
+
+    message = "Skipping bad symlink with empty target: {0!r}".format(empty_target_entry)
+    assert message in caplog.text
 
     assert directories == [str(root / "dir")]
     assert non_directories == [
@@ -773,6 +780,9 @@ async def test_walk_skips_symlink_cycles(
     data_directory.mkdir()
     (data_directory / "file.txt").write_text("", encoding="utf-8")
     (data_directory / symlink_name).symlink_to(symlink_target)
+    non_cycle_name = "non_cycle"
+    non_cycle_target = "future"
+    (data_directory / non_cycle_name).symlink_to(non_cycle_target)
 
     async def _collect_walk_entries(ftp_filesystem, root_path):
         collected = []
@@ -796,6 +806,12 @@ async def test_walk_skips_symlink_cycles(
 
     unexpected_path = "/data/{0}".format(symlink_name)
     assert all(entry.entry_path != unexpected_path for _, entry in output)
+
+    expected_symlink_entry = FTPPath(
+        entry_path="/data/{0}".format(non_cycle_name),
+        entry_type=FTPEntryType.SYMLINK,
+    )
+    assert ("/data", expected_symlink_entry) in output
 
     expected_target = symlink_target
     if not symlink_target.startswith(posixpath.sep):
