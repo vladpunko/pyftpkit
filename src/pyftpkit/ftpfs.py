@@ -100,6 +100,7 @@ class FTPPath(os.PathLike[str]):
 
     entry_path: str
     entry_type: FTPEntryType
+    size_bytes: int = 0
 
     def __fspath__(self) -> str:
         return self.entry_path
@@ -110,11 +111,14 @@ class FTPPath(os.PathLike[str]):
     def __repr__(self) -> str:
         """Returns string representation of an instance for debugging."""
 
-        return "{0!s}(entry_path={1!r}, entry_type={2!s}.{3!s})".format(
+        return (
+            "{0!s}(entry_path={1!r}, entry_type={2!s}.{3!s}, size_bytes={4!s})"
+        ).format(
             self.__class__.__name__,
             self.entry_path,
             self.entry_type.__class__.__name__,
             self.entry_type.name,
+            self.size_bytes,
         )
 
     @property
@@ -146,7 +150,10 @@ class FTPFileSystem:
     # Use a regular expression instead of naive string splitting to ensure
     # robust parsing of `LIST` output.
     _LIST_ENTRY_REGEX: typing.Final[re.Pattern[str]] = re.compile(
-        r"^(?P<perms>.{10})\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s(?P<name>.*)$"
+        r"^(?P<perms>.{10})\s+"
+        r"\S+\s+\S+\s+\S+\s+"
+        r"(?P<size>\S+)\s+\S+\s+\S+\s+\S+\s"
+        r"(?P<name>.*)$"
     )
 
     def __init__(
@@ -269,6 +276,17 @@ class FTPFileSystem:
                 logger.debug("Skipping entry with no fields: %r", entry)
                 continue
 
+            size_bytes = 0
+            size_raw = match.group("size")
+            if size_raw:
+                try:
+                    size_bytes = int(size_raw)
+                except ValueError:
+                    logger.debug(
+                        "Skipping size parse for entry with non-numeric size: %r",
+                        entry,
+                    )
+
             name = match.group("name")
             if name in (posixpath.curdir, posixpath.pardir):
                 continue
@@ -328,7 +346,11 @@ class FTPFileSystem:
             elif is_symlink:
                 entry_type = FTPEntryType.SYMLINK
 
-            yield FTPPath(entry_path=abspath, entry_type=entry_type)
+            yield FTPPath(
+                entry_path=abspath,
+                entry_type=entry_type,
+                size_bytes=size_bytes,
+            )
 
     async def listdir(self, path: str | os.PathLike) -> typing.AsyncIterator[FTPPath]:
         """Lists the contents of a remote FTP directory.

@@ -137,10 +137,14 @@ def test_ftp_path_name_returns_basename():
 def test_ftp_path_representation_includes_type_and_path():
     ftp_path = FTPPath(entry_path="/root/file.txt", entry_type=FTPEntryType.FILE)
 
-    assert (
-        repr(ftp_path)
-        == "FTPPath(entry_path='/root/file.txt', entry_type=FTPEntryType.FILE)"
+    expected = (
+        "FTPPath(entry_path='/root/file.txt', "
+        "entry_type=FTPEntryType.FILE, size_bytes=0)"
     )
+    assert repr(ftp_path) == expected
+
+    evaluated = eval(repr(ftp_path), {"FTPPath": FTPPath, "FTPEntryType": FTPEntryType})
+    assert evaluated == ftp_path
 
 
 @pytest.mark.parametrize(
@@ -398,12 +402,15 @@ async def test_list_directory_bad_entry(
     caplog, mocker, ftp_server, connection_parameters
 ):
     root = pathlib.Path(ftp_server.root)
+    empty_target_entry = (
+        "lrwxrwxrwx   1 owner group          11 Oct 27 09:18 empty ->   "
+    )
     entries = [
         "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 dir",
         "-rw-r--r--   1 owner group         512 Oct 27 09:15 text.txt",
         "lrwxrwxrwx   1 owner group          11 Oct 27 09:17 symlink -> test.txt",
         "lrwxrwxrwx   1 owner group          11 Oct 27 09:17 bad_symlink",
-        "lrwxrwxrwx   1 owner group          11 Oct 27 09:18 empty ->   ",
+        empty_target_entry,
         "",
         "error",
         "          ",
@@ -426,6 +433,79 @@ async def test_list_directory_bad_entry(
         str(root / "text.txt"),
         str(root / "symlink"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_directory_logs_when_entry_has_missing_size(
+    caplog, mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entry = "-rw-r--r--   1 owner group - Oct 27 09:15 no-size.txt"
+    entries = [entry]
+    mock_list_retrbinary(mocker, entries)
+
+    collected_entries = []
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            async for item in ftp_filesystem.listdir(root):
+                collected_entries.append(item)
+
+    assert len(collected_entries) == 1
+    assert collected_entries[0].entry_path == str(root / "no-size.txt")
+    assert collected_entries[0].size_bytes == 0
+
+    message = "Skipping size parse for entry with non-numeric size: {0!r}".format(entry)
+    assert message in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_list_directory_logs_when_entry_has_no_value(
+    caplog, mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entries = [""]
+    mock_list_retrbinary(mocker, entries)
+
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        with caplog.at_level(logging.DEBUG, logger="pyftpkit"):
+            directories, non_directories = await list_directory(ftp_filesystem, root)
+
+    assert directories == []
+    assert non_directories == []
+
+    message = "Skipping malformed entry: {0!r}".format(entries[0])
+    assert message in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_list_directory_reports_entry_sizes(
+    mocker, ftp_server, connection_parameters
+):
+    root = pathlib.Path(ftp_server.root)
+    entries = [
+        "drwxr-xr-x   2 owner group        4096 Oct 27 09:12 dir",
+        "-rw-r--r--   1 owner group         512 Oct 27 09:15 file.txt",
+    ]
+    mock_list_retrbinary(mocker, entries)
+
+    collected_entries = []
+    async with FTPFileSystem(
+        connection_parameters=connection_parameters
+    ) as ftp_filesystem:
+        async for entry in ftp_filesystem.listdir(root):
+            collected_entries.append(entry)
+
+    expected_sizes = {
+        str(root / "dir"): 4096,
+        str(root / "file.txt"): 512,
+    }
+    assert {entry.entry_path: entry.size_bytes for entry in collected_entries} == (
+        expected_sizes
+    )
 
 
 @pytest.mark.asyncio
@@ -778,11 +858,13 @@ async def test_walk_skips_symlink_cycles(
     home = pathlib.Path(ftp_server.home)
     data_directory = home / "data"
     data_directory.mkdir()
-    (data_directory / "file.txt").write_text("", encoding="utf-8")
+    file_path = data_directory / "file.txt"
+    file_path.write_text("", encoding="utf-8")
     (data_directory / symlink_name).symlink_to(symlink_target)
     non_cycle_name = "non_cycle"
     non_cycle_target = "future"
-    (data_directory / non_cycle_name).symlink_to(non_cycle_target)
+    non_cycle_path = data_directory / non_cycle_name
+    non_cycle_path.symlink_to(non_cycle_target)
 
     async def _collect_walk_entries(ftp_filesystem, root_path):
         collected = []
@@ -801,6 +883,7 @@ async def test_walk_skips_symlink_cycles(
     expected_entry = FTPPath(
         entry_path="/data/file.txt",
         entry_type=FTPEntryType.FILE,
+        size_bytes=file_path.stat().st_size,
     )
     assert ("/data", expected_entry) in output
 
@@ -810,6 +893,7 @@ async def test_walk_skips_symlink_cycles(
     expected_symlink_entry = FTPPath(
         entry_path="/data/{0}".format(non_cycle_name),
         entry_type=FTPEntryType.SYMLINK,
+        size_bytes=non_cycle_path.lstat().st_size,
     )
     assert ("/data", expected_symlink_entry) in output
 
@@ -1391,6 +1475,7 @@ async def test_walk_drain_output_queue(mocker, ftp_server, connection_parameters
     expected_entry = FTPPath(
         entry_path=str(root / "test" / "text.txt"),
         entry_type=FTPEntryType.FILE,
+        size_bytes=path.stat().st_size,
     )
     expected_output = (expected_directory, expected_entry)
 
