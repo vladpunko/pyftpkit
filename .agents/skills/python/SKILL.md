@@ -21,7 +21,7 @@ Optimize for speed when it does not compromise correctness.
 2. Keep error and logger messages unchanged. Tests assert exact text.
 3. Update the `.pyi` stub when public APIs change.
 4. Use `posixpath` for remote FTP paths. Keep validation consistent with helpers.
-5. Run `black` then `isort` on touched files.
+5. Run `black`, then `isort` on touched files.
 6. Use `make tests` for test runs when requested.
 
 ## Conventions
